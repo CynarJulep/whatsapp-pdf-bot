@@ -35,6 +35,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 // Global state variables
 let sock = null;
 let isConnected = false;
+let qrCode = null;
 
 /**
  * Custom Supabase Auth State Provider for Baileys
@@ -165,6 +166,7 @@ async function connectToWhatsApp() {
             const { connection, lastDisconnect, qr } = update;
 
             if (qr) {
+                qrCode = qr;
                 console.log('\n--- ESCANEA ESTE CÓDIGO QR CON WHATSAPP BUSINESS ---');
                 qrcode.generate(qr, { small: true });
                 console.log('-----------------------------------------------------\n');
@@ -172,6 +174,7 @@ async function connectToWhatsApp() {
 
             if (connection === 'close') {
                 isConnected = false;
+                qrCode = null;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                 
@@ -188,6 +191,7 @@ async function connectToWhatsApp() {
                 }
             } else if (connection === 'open') {
                 isConnected = true;
+                qrCode = null;
                 console.log(`[WhatsApp] Connection established successfully! Logged in as: ${sock.user.name || sock.user.id}`);
             }
         });
@@ -230,7 +234,8 @@ app.get('/status', (req, res) => {
         success: true,
         connected: isConnected,
         session_id: SESSION_ID,
-        phone_user: sock?.user ? sock.user.id : null
+        phone_user: sock?.user ? sock.user.id : null,
+        qr: qrCode
     });
 });
 
