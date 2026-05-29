@@ -63,10 +63,19 @@
             </div>
         </div>
 
-        <!-- Bot Connection Status Badge -->
-        <div id="bot-status-container" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-xs font-medium">
-            <span id="bot-status-dot" class="w-2.5 h-2.5 rounded-full bg-slate-600 animate-pulse"></span>
-            <span id="bot-status-text" class="text-slate-400">Verificando conexión...</span>
+        <!-- Bot Connection Status Badge & Contact Management -->
+        <div class="flex items-center gap-3">
+            <div id="bot-status-container" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-xs font-medium">
+                <span id="bot-status-dot" class="w-2.5 h-2.5 rounded-full bg-slate-600 animate-pulse"></span>
+                <span id="bot-status-text" class="text-slate-400">Verificando conexión...</span>
+            </div>
+            
+            <button id="btn-manage-contacts" type="button" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition-all duration-200 cursor-pointer">
+                <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                </svg>
+                Contactos
+            </button>
         </div>
     </header>
 
@@ -103,20 +112,32 @@
                 </div>
 
                 <form id="upload-form" class="space-y-6">
-                    <!-- Phone Number JID Input -->
-                    <div class="space-y-2">
-                        <label for="phone-number" class="block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                            Número de Destino (con código de país)
+                    <!-- Searchable Contacts Dropdown -->
+                    <div class="space-y-2 relative" id="contacts-dropdown-container">
+                        <label for="phone-number-input" class="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                            Contacto de Destino
                         </label>
                         <div class="relative rounded-xl shadow-sm">
-                            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                            <div class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
                                 <span class="text-slate-500 text-sm font-semibold">+</span>
                             </div>
-                            <input type="text" name="phone-number" id="phone-number" 
-                                   placeholder="5491122334455" required
-                                   class="block w-full rounded-xl border-0 bg-slate-900/60 py-3.5 pl-8 pr-4 text-white ring-1 ring-inset ring-slate-800 placeholder:text-slate-600 focus:ring-2 focus:ring-inset focus:ring-indigo-500 text-sm font-medium transition-all duration-200">
+                            <input type="text" id="phone-number-input" placeholder="Buscar contacto o escribir número..." required autocomplete="off"
+                                   class="block w-full rounded-xl border-0 bg-slate-900/60 py-3.5 pl-8 pr-10 text-white ring-1 ring-inset ring-slate-800 placeholder:text-slate-600 focus:ring-2 focus:ring-inset focus:ring-indigo-500 text-sm font-medium transition-all duration-200">
+                            <button type="button" id="btn-toggle-dropdown" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-indigo-400 transition-colors cursor-pointer">
+                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
                         </div>
-                        <p class="text-[11px] text-slate-500">Ej: <span class="text-slate-400">5491122334455</span> (Argentina) o <span class="text-slate-400">34612345678</span> (España). Sin espacios ni guiones.</p>
+                        
+                        <!-- Options List -->
+                        <div id="dropdown-options" class="hidden absolute left-0 w-full mt-1 z-30 rounded-xl bg-slate-950/95 border border-slate-800 shadow-2xl max-h-60 overflow-y-auto backdrop-blur-md">
+                            <!-- Rendered dynamically -->
+                        </div>
+                        
+                        <!-- Hidden standard input expected by original code -->
+                        <input type="hidden" id="phone-number" name="phone-number">
+                        <p class="text-[11px] text-slate-500">Busca un contacto activo o ingresa un número directo con código de país (Ej: 549342...).</p>
                     </div>
 
                     <!-- Drag & Drop Zone -->
@@ -192,6 +213,70 @@
         WhatsApp PDF Automation &copy; 2026. Panel para Operadores Autorizados.
     </footer>
 
+    <!-- Contacts Management Modal -->
+    <div id="contacts-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div class="w-full max-w-2xl glass glow-indigo rounded-3xl p-6 flex flex-col max-h-[85vh] space-y-4">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-900">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                    </svg>
+                    Gestión de Contactos
+                </h3>
+                <button id="btn-close-contacts" type="button" class="p-1 hover:bg-slate-900 rounded-lg text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Add Contact Form -->
+            <form id="add-contact-form" class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-900/30 p-3 rounded-xl border border-slate-800/50">
+                <input type="text" id="new-contact-name" placeholder="Nombre completo" required
+                       class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-white font-medium">
+                <input type="text" id="new-contact-phone" placeholder="Teléfono (ej: 549342...)" required
+                       class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-white font-medium">
+                <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg px-4 py-2 text-xs transition-all duration-200 cursor-pointer">
+                    Agregar Contacto
+                </button>
+            </form>
+
+            <!-- Search and Stats -->
+            <div class="flex flex-col sm:flex-row gap-3 items-center justify-between">
+                <div class="relative w-full sm:w-72">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+                        <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                    </span>
+                    <input type="text" id="contact-search" placeholder="Buscar por nombre o teléfono..."
+                           class="w-full bg-slate-900/50 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-white">
+                </div>
+                <div class="text-xs text-slate-500 font-medium">
+                    Total: <span id="count-total" class="text-slate-300">0</span> | Activos: <span id="count-active" class="text-emerald-400">0</span>
+                </div>
+            </div>
+
+            <!-- Contacts Table / List -->
+            <div class="flex-grow overflow-y-auto pr-1 max-h-[40vh] border border-slate-900 rounded-xl bg-slate-950/40">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-900 bg-slate-900/20 text-slate-400 text-[10px] font-semibold uppercase tracking-wider">
+                            <th class="p-3">Nombre</th>
+                            <th class="p-3">Teléfono</th>
+                            <th class="p-3 text-center">Mostrar</th>
+                            <th class="p-3 text-right">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="contacts-list-tbody" class="text-xs">
+                        <!-- Dynamic Rows -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- Frontend logic script -->
     <script>
         // ==========================================
@@ -229,12 +314,29 @@
         const botStatusText = document.getElementById('bot-status-text');
         const botStatusContainer = document.getElementById('bot-status-container');
 
+        // Contacts DOM elements
+        const btnManageContacts = document.getElementById('btn-manage-contacts');
+        const contactsModal = document.getElementById('contacts-modal');
+        const btnCloseContacts = document.getElementById('btn-close-contacts');
+        const addContactForm = document.getElementById('add-contact-form');
+        const contactSearch = document.getElementById('contact-search');
+        const contactsListTbody = document.getElementById('contacts-list-tbody');
+        const countTotal = document.getElementById('count-total');
+        const countActive = document.getElementById('count-active');
+        const phoneNumberInput = document.getElementById('phone-number-input');
+        const btnToggleDropdown = document.getElementById('btn-toggle-dropdown');
+        const dropdownOptions = document.getElementById('dropdown-options');
+        const hiddenPhoneInput = document.getElementById('phone-number');
+
         let selectedFile = null;
         let supabaseClient = null;
+        let contacts = []; // local cache of all contacts
 
         // Initialize Supabase Client if keys are configured
         if (config.supabaseUrl && config.supabaseKey) {
             supabaseClient = supabase.createClient(config.supabaseUrl, config.supabaseKey);
+            // Load contacts to populate the dropdown list
+            loadContacts();
         } else {
             showToast("Advertencia: Configura las variables en el código o localStorage", "error");
         }
@@ -385,13 +487,18 @@
                 return;
             }
 
-            const rawPhone = document.getElementById('phone-number').value.trim();
-            const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
-
+            // Get clean phone number from hidden field or input text fallback
+            let cleanPhone = document.getElementById('phone-number').value.trim();
             if (!cleanPhone) {
-                showToast("Por favor, ingresa un número de teléfono válido.", "error");
+                const rawVal = document.getElementById('phone-number-input').value.trim();
+                cleanPhone = rawVal.replace(/[^0-9]/g, '');
+            }
+
+            if (!cleanPhone || cleanPhone.length < 8) {
+                showToast("Por favor, selecciona un contacto o ingresa un número válido.", "error");
                 return;
             }
+
 
             // Lock UI
             setUiState(true);
@@ -460,7 +567,8 @@
         function setUiState(loading) {
             submitBtn.disabled = loading;
             removeFileBtn.disabled = loading;
-            document.getElementById('phone-number').disabled = loading;
+            document.getElementById('phone-number-input').disabled = loading;
+            document.getElementById('btn-toggle-dropdown').disabled = loading;
         }
 
         function showProgress(show) {
@@ -505,6 +613,294 @@
                 `;
             }
             toastMessage.innerText = message;
+        }
+
+        // ==========================================
+        // GESTIÓN DE CONTACTOS & AUTOCOMPLETADO
+        // ==========================================
+        async function loadContacts() {
+            if (!supabaseClient) return;
+            try {
+                const { data, error } = await supabaseClient
+                    .from('contacts')
+                    .select('*')
+                    .order('name', { ascending: true });
+                if (error) throw error;
+                contacts = data || [];
+                renderContactsTable();
+                renderDropdownOptions();
+                updateStats();
+            } catch (err) {
+                console.error("Error cargando contactos:", err);
+                showToast("Error al cargar contactos de Supabase: " + err.message, "error");
+            }
+        }
+
+        function updateStats() {
+            countTotal.innerText = contacts.length;
+            countActive.innerText = contacts.filter(c => c.is_active).length;
+        }
+
+        function renderContactsTable() {
+            const filter = contactSearch.value.toLowerCase().trim();
+            contactsListTbody.innerHTML = '';
+            
+            const filtered = contacts.filter(c => 
+                c.name.toLowerCase().includes(filter) || 
+                c.phone_number.includes(filter)
+            );
+            
+            if (filtered.length === 0) {
+                contactsListTbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="p-4 text-center text-slate-500 font-medium bg-slate-900/10">No se encontraron contactos.</td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            filtered.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-slate-900/60 hover:bg-slate-900/10 transition-colors";
+                tr.innerHTML = `
+                    <td class="p-3 font-semibold text-slate-200">
+                        <span class="view-name-${c.id}">${escapeHtml(c.name)}</span>
+                        <input type="text" class="hidden edit-name-${c.id} w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white" value="${escapeHtml(c.name)}">
+                    </td>
+                    <td class="p-3 font-medium text-slate-400">
+                        <span class="view-phone-${c.id}">${escapeHtml(c.phone_number)}</span>
+                        <input type="text" class="hidden edit-phone-${c.id} w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white" value="${escapeHtml(c.phone_number)}">
+                    </td>
+                    <td class="p-3 text-center">
+                        <input type="checkbox" ${c.is_active ? 'checked' : ''} class="w-4 h-4 rounded border-slate-800 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer" onchange="toggleContactActive(${c.id}, this.checked)">
+                    </td>
+                    <td class="p-3 text-right space-x-2 whitespace-nowrap">
+                        <button type="button" class="btn-edit-${c.id} text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer" onclick="startEditContact(${c.id})">Editar</button>
+                        <button type="button" class="hidden btn-save-${c.id} text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer" onclick="saveEditContact(${c.id})">Guardar</button>
+                        <button type="button" class="text-red-400 hover:text-red-300 font-semibold cursor-pointer" onclick="deleteContact(${c.id})">Borrar</button>
+                    </td>
+                `;
+                contactsListTbody.appendChild(tr);
+            });
+        }
+        
+        window.startEditContact = (id) => {
+            document.querySelector(`.view-name-${id}`).classList.add('hidden');
+            document.querySelector(`.view-phone-${id}`).classList.add('hidden');
+            document.querySelector(`.edit-name-${id}`).classList.remove('hidden');
+            document.querySelector(`.edit-phone-${id}`).classList.remove('hidden');
+            document.querySelector(`.btn-edit-${id}`).classList.add('hidden');
+            document.querySelector(`.btn-save-${id}`).classList.remove('hidden');
+        };
+        
+        window.saveEditContact = async (id) => {
+            const newName = document.querySelector(`.edit-name-${id}`).value.trim();
+            const newPhone = document.querySelector(`.edit-phone-${id}`).value.replace(/\D/g, '');
+            if (!newName || !newPhone) {
+                showToast("El nombre y teléfono son obligatorios.", "error");
+                return;
+            }
+            try {
+                const { error } = await supabaseClient
+                    .from('contacts')
+                    .update({ name: newName, phone_number: newPhone })
+                    .eq('id', id);
+                if (error) throw error;
+                
+                const contact = contacts.find(c => c.id === id);
+                if (contact) {
+                    contact.name = newName;
+                    contact.phone_number = newPhone;
+                }
+                renderContactsTable();
+                renderDropdownOptions();
+                showToast("Contacto actualizado exitosamente.");
+            } catch (err) {
+                console.error(err);
+                showToast("Error al guardar cambios: " + err.message, "error");
+            }
+        };
+        
+        window.toggleContactActive = async (id, isChecked) => {
+            try {
+                const { error } = await supabaseClient
+                    .from('contacts')
+                    .update({ is_active: isChecked })
+                    .eq('id', id);
+                if (error) throw error;
+                
+                const contact = contacts.find(c => c.id === id);
+                if (contact) {
+                    contact.is_active = isChecked;
+                }
+                updateStats();
+                renderDropdownOptions();
+            } catch (err) {
+                console.error(err);
+                showToast("Error al cambiar estado: " + err.message, "error");
+            }
+        };
+        
+        window.deleteContact = async (id) => {
+            if (!confirm("¿Estás seguro de eliminar este contacto?")) return;
+            try {
+                const { error } = await supabaseClient
+                    .from('contacts')
+                    .delete()
+                    .eq('id', id);
+                if (error) throw error;
+                
+                contacts = contacts.filter(c => c.id !== id);
+                renderContactsTable();
+                renderDropdownOptions();
+                updateStats();
+                showToast("Contacto eliminado.");
+            } catch (err) {
+                console.error(err);
+                showToast("Error al eliminar contacto: " + err.message, "error");
+            }
+        };
+
+        function renderDropdownOptions() {
+            const query = phoneNumberInput.value.toLowerCase().trim();
+            // If the query contains a selected contact structure, ignore searching it
+            const isSelectedStructure = query.includes('(+');
+            const searchVal = isSelectedStructure ? '' : query;
+
+            dropdownOptions.innerHTML = '';
+            
+            const activeContacts = contacts.filter(c => c.is_active);
+            const filtered = activeContacts.filter(c => 
+                c.name.toLowerCase().includes(searchVal) || 
+                c.phone_number.includes(searchVal)
+            );
+            
+            if (filtered.length === 0) {
+                dropdownOptions.innerHTML = `
+                    <div class="p-3 text-xs text-slate-500 text-center font-medium">No hay contactos activos que coincidan.</div>
+                `;
+                return;
+            }
+            
+            filtered.forEach(c => {
+                const div = document.createElement('div');
+                div.className = "px-4 py-2.5 hover:bg-indigo-600 hover:text-white text-xs font-semibold text-slate-200 cursor-pointer flex justify-between items-center transition-colors duration-150 border-b border-slate-900/30 last:border-0";
+                div.innerHTML = `
+                    <span>${escapeHtml(c.name)}</span>
+                    <span class="text-[10px] text-slate-500 font-medium group-hover:text-indigo-200">+${escapeHtml(c.phone_number)}</span>
+                `;
+                div.addEventListener('click', () => {
+                    selectContact(c);
+                });
+                dropdownOptions.appendChild(div);
+            });
+        }
+        
+        function selectContact(c) {
+            phoneNumberInput.value = `${c.name} (+${c.phone_number})`;
+            hiddenPhoneInput.value = c.phone_number;
+            dropdownOptions.classList.add('hidden');
+        }
+
+        // Dropdown events
+        btnToggleDropdown.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdownOptions.classList.toggle('hidden');
+            if (!dropdownOptions.classList.contains('hidden')) {
+                renderDropdownOptions();
+            }
+        });
+        
+        phoneNumberInput.addEventListener('focus', () => {
+            dropdownOptions.classList.remove('hidden');
+            renderDropdownOptions();
+        });
+        
+        phoneNumberInput.addEventListener('input', () => {
+            dropdownOptions.classList.remove('hidden');
+            
+            const rawVal = phoneNumberInput.value.trim();
+            const digits = rawVal.replace(/\D/g, '');
+            
+            hiddenPhoneInput.value = digits;
+            renderDropdownOptions();
+        });
+        
+        document.addEventListener('click', (e) => {
+            const container = document.getElementById('contacts-dropdown-container');
+            if (container && !container.contains(e.target)) {
+                dropdownOptions.classList.add('hidden');
+            }
+        });
+
+        // Modal and table search events
+        btnManageContacts.addEventListener('click', () => {
+            contactsModal.classList.remove('hidden');
+            loadContacts();
+        });
+        
+        btnCloseContacts.addEventListener('click', () => {
+            contactsModal.classList.add('hidden');
+        });
+        
+        contactsModal.addEventListener('click', (e) => {
+            if (e.target === contactsModal) {
+                contactsModal.classList.add('hidden');
+            }
+        });
+        
+        contactSearch.addEventListener('input', () => {
+            renderContactsTable();
+        });
+
+        // Form submission for new contact
+        addContactForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nameVal = document.getElementById('new-contact-name').value.trim();
+            let phoneVal = document.getElementById('new-contact-phone').value.trim();
+            
+            let cleanPhone = phoneVal.replace(/\D/g, '');
+            if (cleanPhone.length < 8) {
+                showToast("El número de teléfono debe tener al menos 8 dígitos.", "error");
+                return;
+            }
+            
+            if (cleanPhone.length === 10 && /^[123]/.test(cleanPhone)) {
+                cleanPhone = '549' + cleanPhone;
+            } else if (cleanPhone.length === 12 && cleanPhone.startsWith('54') && cleanPhone[2] !== '9') {
+                cleanPhone = '549' + cleanPhone.substring(2);
+            }
+            
+            try {
+                const { error } = await supabaseClient
+                    .from('contacts')
+                    .insert([{ name: nameVal, phone_number: cleanPhone, is_active: true }]);
+                    
+                if (error) {
+                    if (error.code === '23505') {
+                        throw new Error("El número de teléfono ya existe en la base de datos.");
+                    }
+                    throw error;
+                }
+                
+                showToast("Contacto agregado exitosamente.");
+                document.getElementById('new-contact-name').value = '';
+                document.getElementById('new-contact-phone').value = '';
+                loadContacts();
+            } catch (err) {
+                console.error(err);
+                showToast("Error al agregar contacto: " + err.message, "error");
+            }
+        });
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
         }
 
         // Setup testing settings config modal or dynamic fallback via URL query string

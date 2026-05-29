@@ -5,3 +5,8 @@ node_modules/
 .DS_Store
 dist/
 .gemini/
+.netlify/
+package-lock.json
+seed_contacts.js
+contacts.vcf
+

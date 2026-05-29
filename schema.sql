@@ -75,3 +75,38 @@ CREATE POLICY "Allow public deletes from pdfs"
 ON storage.objects FOR DELETE
 TO anon, authenticated
 USING (bucket_id = 'pdfs');
+
+-- 5. Contacts Table for manual targeting selection
+CREATE TABLE IF NOT EXISTS public.contacts (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone_number TEXT UNIQUE NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Enable RLS for contacts table
+ALTER TABLE public.contacts ENABLE ROW LEVEL SECURITY;
+
+-- Add RLS Policies for public access (so frontend app can manage them using anon key)
+CREATE POLICY "Allow public read of contacts"
+ON public.contacts FOR SELECT
+TO anon, authenticated
+USING (true);
+
+CREATE POLICY "Allow public insert of contacts"
+ON public.contacts FOR INSERT
+TO anon, authenticated
+WITH CHECK (true);
+
+CREATE POLICY "Allow public update of contacts"
+ON public.contacts FOR UPDATE
+TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow public delete of contacts"
+ON public.contacts FOR DELETE
+TO anon, authenticated
+USING (true);
+
