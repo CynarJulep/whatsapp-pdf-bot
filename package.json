@@ -1,0 +1,24 @@
+{
+  "name": "whatsapp-pdf-sender-backend",
+  "version": "1.0.0",
+  "description": "Backend for WhatsApp Business PDF sender automation using Baileys and Supabase.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.43.4",
+    "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys#master",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pino": "^9.1.0",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.17.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "private": true
+}

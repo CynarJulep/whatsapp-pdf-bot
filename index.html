@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Document Automation Panel</title>
+    
+    <!-- Google Fonts: Plus Jakarta Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- Supabase JS Client CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <style>
+        .glass {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glow-green {
+            box-shadow: 0 0 15px rgba(34, 197, 94, 0.2);
+        }
+        .glow-red {
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+        }
+        .glow-indigo {
+            box-shadow: 0 0 25px rgba(99, 102, 241, 0.15);
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col justify-between overflow-x-hidden font-sans">
+
+    <!-- Ambient background glows -->
+    <div class="absolute top-0 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none"></div>
+    <div class="absolute bottom-0 right-1/4 w-96 h-96 bg-emerald-600/10 rounded-full blur-[120px] pointer-events-none"></div>
+
+    <!-- Header -->
+    <header class="w-full max-w-7xl mx-auto px-6 py-4 flex items-center justify-between border-b border-slate-900 relative z-10">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-emerald-500 flex items-center justify-center font-bold text-white shadow-md">
+                P
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">Pai Central</h1>
+                <p class="text-xs text-slate-500 font-medium">WhatsApp Office Gateway</p>
+            </div>
+        </div>
+
+        <!-- Bot Connection Status Badge -->
+        <div id="bot-status-container" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-xs font-medium">
+            <span id="bot-status-dot" class="w-2.5 h-2.5 rounded-full bg-slate-600 animate-pulse"></span>
+            <span id="bot-status-text" class="text-slate-400">Verificando conexión...</span>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow flex items-center justify-center p-6 relative z-10">
+        <div class="w-full max-w-md glass glow-indigo rounded-3xl p-8 transition-all duration-300">
+            
+            <div class="text-center mb-8">
+                <h2 class="text-2xl font-bold text-white tracking-tight">Enviar Documento PDF</h2>
+                <p class="text-sm text-slate-400 mt-1.5">El archivo se subirá a la nube y se enviará automáticamente por WhatsApp.</p>
+            </div>
+
+            <form id="upload-form" class="space-y-6">
+                <!-- Phone Number JID Input -->
+                <div class="space-y-2">
+                    <label for="phone-number" class="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Número de Destino (con código de país)
+                    </label>
+                    <div class="relative rounded-xl shadow-sm">
+                        <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                            <span class="text-slate-500 text-sm font-semibold">+</span>
+                        </div>
+                        <input type="text" name="phone-number" id="phone-number" 
+                               placeholder="5491122334455" required
+                               class="block w-full rounded-xl border-0 bg-slate-900/60 py-3.5 pl-8 pr-4 text-white ring-1 ring-inset ring-slate-800 placeholder:text-slate-600 focus:ring-2 focus:ring-inset focus:ring-indigo-500 text-sm font-medium transition-all duration-200">
+                    </div>
+                    <p class="text-[11px] text-slate-500">Ej: <span class="text-slate-400">5491122334455</span> (Argentina) o <span class="text-slate-400">34612345678</span> (España). Sin espacios ni guiones.</p>
+                </div>
+
+                <!-- Drag & Drop Zone -->
+                <div class="space-y-2">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Archivo PDF
+                    </label>
+                    <div id="drop-zone" class="border-2 border-dashed border-slate-800 hover:border-indigo-500/50 rounded-2xl p-6 text-center cursor-pointer transition-all duration-300 bg-slate-900/30 hover:bg-slate-900/50 group">
+                        <input type="file" id="file-input" accept="application/pdf" class="hidden">
+                        
+                        <div id="drop-zone-prompt" class="space-y-3">
+                            <div class="mx-auto w-12 h-12 rounded-xl bg-slate-900 flex items-center justify-center text-slate-400 group-hover:text-indigo-400 border border-slate-800 group-hover:border-indigo-500/30 transition-all duration-300">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-slate-300">Arrastra tu PDF aquí o <span class="text-indigo-400 group-hover:text-indigo-300 transition-colors duration-200">selecciona un archivo</span></p>
+                                <p class="text-xs text-slate-500 mt-1">Límite de tamaño: 50MB</p>
+                            </div>
+                        </div>
+
+                        <!-- Selected File State -->
+                        <div id="selected-file-state" class="hidden flex items-center justify-between bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <div class="w-9 h-9 rounded-lg bg-red-950 border border-red-900/30 flex items-center justify-center text-red-400 flex-shrink-0 font-bold text-xs">
+                                    PDF
+                                </div>
+                                <div class="text-left min-w-0">
+                                    <p id="file-name" class="text-xs font-semibold text-slate-200 truncate">archivo.pdf</p>
+                                    <p id="file-size" class="text-[10px] text-slate-500">0.0 KB</p>
+                                </div>
+                            </div>
+                            <button type="button" id="remove-file-btn" class="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-red-400 transition-colors duration-200">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div id="progress-container" class="hidden space-y-2">
+                    <div class="flex justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        <span id="progress-status">Subiendo a Supabase...</span>
+                        <span id="progress-percentage">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                        <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" id="submit-btn" disabled
+                        class="w-full py-4 px-4 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 disabled:from-slate-900 disabled:to-slate-900 text-white disabled:text-slate-600 font-bold rounded-xl shadow-lg shadow-indigo-500/10 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-950 transition-all duration-300 cursor-pointer disabled:cursor-not-allowed text-sm">
+                    Enviar por WhatsApp
+                </button>
+            </form>
+
+            <!-- Feedback Toast Notification -->
+            <div id="toast" class="hidden mt-6 p-4 rounded-xl border flex gap-3 animate-fade-in text-xs font-medium">
+                <div id="toast-icon" class="flex-shrink-0"></div>
+                <div id="toast-message" class="text-slate-300"></div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full text-center py-4 border-t border-slate-900 relative z-10 text-[11px] text-slate-600 font-medium">
+        WhatsApp PDF Automation &copy; 2026. Panel para Operadores Autorizados.
+    </footer>
+
+    <!-- Frontend logic script -->
+    <script>
+        // ==========================================
+        // CONFIGURACIÓN - VARIABLES DE ENTORNO
+        // ==========================================
+        const SUPABASE_URL = "YOUR_SUPABASE_URL";
+        const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+        const RAILWAY_URL = "YOUR_RAILWAY_URL"; 
+        
+        // Dynamic Config Loader (Uses window.location params or localStorage if placeholders are not replaced yet)
+        const config = {
+            supabaseUrl: SUPABASE_URL === "YOUR_SUPABASE_URL" ? (localStorage.getItem('SUPABASE_URL') || '') : SUPABASE_URL,
+            supabaseKey: SUPABASE_ANON_KEY === "YOUR_SUPABASE_ANON_KEY" ? (localStorage.getItem('SUPABASE_ANON_KEY') || '') : SUPABASE_ANON_KEY,
+            railwayUrl: RAILWAY_URL === "YOUR_RAILWAY_URL" ? (localStorage.getItem('RAILWAY_URL') || '') : RAILWAY_URL
+        };
+
+        // DOM elements
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const dropZonePrompt = document.getElementById('drop-zone-prompt');
+        const selectedFileState = document.getElementById('selected-file-state');
+        const fileNameEl = document.getElementById('file-name');
+        const fileSizeEl = document.getElementById('file-size');
+        const removeFileBtn = document.getElementById('remove-file-btn');
+        const submitBtn = document.getElementById('submit-btn');
+        const uploadForm = document.getElementById('upload-form');
+        const progressContainer = document.getElementById('progress-container');
+        const progressStatus = document.getElementById('progress-status');
+        const progressPercentage = document.getElementById('progress-percentage');
+        const progressBar = document.getElementById('progress-bar');
+        const toast = document.getElementById('toast');
+        const toastIcon = document.getElementById('toast-icon');
+        const toastMessage = document.getElementById('toast-message');
+        const botStatusDot = document.getElementById('bot-status-dot');
+        const botStatusText = document.getElementById('bot-status-text');
+        const botStatusContainer = document.getElementById('bot-status-container');
+
+        let selectedFile = null;
+        let supabaseClient = null;
+
+        // Initialize Supabase Client if keys are configured
+        if (config.supabaseUrl && config.supabaseKey) {
+            supabaseClient = supabase.createClient(config.supabaseUrl, config.supabaseKey);
+        } else {
+            showToast("Advertencia: Configura las variables en el código o localStorage", "error");
+        }
+
+        // ----------------------------------------------------
+        // Check WhatsApp Bot status from Railway
+        // ----------------------------------------------------
+        async function checkBotStatus() {
+            if (!config.railwayUrl) {
+                botStatusText.innerText = "Falta URL del Backend";
+                return;
+            }
+
+            try {
+                const response = await fetch(`${config.railwayUrl}/status`);
+                const data = await response.json();
+                
+                if (data.connected) {
+                    botStatusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 glow-green";
+                    botStatusText.innerText = "WhatsApp Conectado";
+                    botStatusText.className = "text-emerald-400";
+                    botStatusContainer.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/30 border border-emerald-900/30 text-xs font-semibold";
+                } else {
+                    botStatusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500 glow-red animate-pulse";
+                    botStatusText.innerText = "WhatsApp Desconectado (Escanear QR)";
+                    botStatusText.className = "text-red-400";
+                    botStatusContainer.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-950/30 border border-red-900/30 text-xs font-semibold";
+                }
+            } catch (err) {
+                console.error("Error pinging Railway backend:", err);
+                botStatusDot.className = "w-2.5 h-2.5 rounded-full bg-slate-600";
+                botStatusText.innerText = "Backend Fuera de Línea";
+                botStatusText.className = "text-slate-500";
+                botStatusContainer.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs font-medium";
+            }
+        }
+
+        // Poll bot status every 20 seconds
+        if (config.railwayUrl) {
+            checkBotStatus();
+            setInterval(checkBotStatus, 20000);
+        }
+
+        // ----------------------------------------------------
+        // File Drag and Drop events
+        // ----------------------------------------------------
+        dropZone.addEventListener('click', () => {
+            if (!selectedFile) fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        // Drag styles
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.add('border-indigo-500', 'bg-slate-900/50');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('border-indigo-500', 'bg-slate-900/50');
+            }, false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            handleFiles(dt.files);
+        });
+
+        function handleFiles(files) {
+            const file = files[0];
+            if (!file) return;
+
+            if (file.type !== "application/pdf") {
+                showToast("Por favor, selecciona únicamente archivos PDF.", "error");
+                return;
+            }
+
+            selectedFile = file;
+            fileNameEl.innerText = file.name;
+            fileSizeEl.innerText = formatBytes(file.size);
+
+            dropZonePrompt.classList.add('hidden');
+            selectedFileState.classList.remove('hidden');
+            
+            // Enable submit button
+            submitBtn.disabled = false;
+        }
+
+        removeFileBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Avoid triggering dropZone click
+            resetFileState();
+        });
+
+        function resetFileState() {
+            selectedFile = null;
+            fileInput.value = "";
+            dropZonePrompt.classList.remove('hidden');
+            selectedFileState.classList.add('hidden');
+            submitBtn.disabled = true;
+        }
+
+        // ----------------------------------------------------
+        // Form Submit, Storage Upload & Webhook Trigger
+        // ----------------------------------------------------
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!selectedFile) return;
+            if (!supabaseClient) {
+                showToast("Error: Configuración de Supabase no inicializada.", "error");
+                return;
+            }
+
+            const rawPhone = document.getElementById('phone-number').value.trim();
+            const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+
+            if (!cleanPhone) {
+                showToast("Por favor, ingresa un número de teléfono válido.", "error");
+                return;
+            }
+
+            // Lock UI
+            setUiState(true);
+            showProgress(true);
+            updateProgress(0, "Preparando subida...");
+
+            // 1. Upload to Supabase Storage
+            // Generate a unique path/filename to avoid overwriting or caching issues (e.g. timestamp_filename)
+            const fileExtension = selectedFile.name.split('.').pop();
+            const cleanFileName = selectedFile.name.replace(/[^a-zA-Z0-9]/g, '_');
+            const uniqueFileName = `${Date.now()}_${cleanFileName}.${fileExtension}`;
+
+            try {
+                updateProgress(20, "Subiendo PDF a Supabase Storage...");
+                
+                // Directly upload using client side SDK
+                const { data, error: uploadError } = await supabaseClient.storage
+                    .from('pdfs')
+                    .upload(uniqueFileName, selectedFile, {
+                        cacheControl: '3600',
+                        upsert: true
+                    });
+
+                if (uploadError) throw uploadError;
+
+                updateProgress(60, "PDF subido. Activando backend en Railway...");
+
+                // 2. Trigger Webhook to Railway Backend
+                const response = await fetch(`${config.railwayUrl}/send-pdf`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        fileName: uniqueFileName,
+                        phoneNumber: cleanPhone
+                    })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Error al procesar el envío en el backend.');
+                }
+
+                updateProgress(100, "¡Completado!");
+                showToast("¡Archivo enviado exitosamente por WhatsApp!", "success");
+                
+                // Reset file and state after delay
+                setTimeout(() => {
+                    resetFileState();
+                    setUiState(false);
+                    showProgress(false);
+                    checkBotStatus();
+                }, 2000);
+
+            } catch (err) {
+                console.error("Error during flow:", err);
+                showToast(`Error: ${err.message}`, "error");
+                setUiState(false);
+                showProgress(false);
+            }
+        });
+
+        // Helpers
+        function setUiState(loading) {
+            submitBtn.disabled = loading;
+            removeFileBtn.disabled = loading;
+            document.getElementById('phone-number').disabled = loading;
+        }
+
+        function showProgress(show) {
+            if (show) {
+                progressContainer.classList.remove('hidden');
+            } else {
+                progressContainer.classList.add('hidden');
+            }
+        }
+
+        function updateProgress(percentage, text) {
+            progressBar.style.width = `${percentage}%`;
+            progressPercentage.innerText = `${percentage}%`;
+            progressStatus.innerText = text;
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        function showToast(message, type = "success") {
+            toast.classList.remove('hidden', 'bg-emerald-950/80', 'border-emerald-900/30', 'bg-red-950/80', 'border-red-900/30');
+            
+            if (type === "success") {
+                toast.classList.add('bg-emerald-950/80', 'border-emerald-900/30', 'text-emerald-300');
+                toastIcon.innerHTML = `
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                `;
+            } else {
+                toast.classList.add('bg-red-950/80', 'border-red-900/30', 'text-red-300');
+                toastIcon.innerHTML = `
+                    <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                `;
+            }
+            toastMessage.innerText = message;
+        }
+
+        // Setup testing settings config modal or dynamic fallback via URL query string
+        // If query parameters like ?supabase_url=... are found, automatically populate and save
+        const urlParams = new URLSearchParams(window.location.search);
+        ['supabase_url', 'supabase_anon_key', 'railway_url'].forEach(param => {
+            if (urlParams.has(param)) {
+                const val = urlParams.get(param);
+                localStorage.setItem(param.toUpperCase(), val);
+            }
+        });
+    </script>
+</body>
+</html>
