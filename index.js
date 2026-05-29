@@ -98,31 +98,45 @@ async function useSupabaseAuthState(supabase, sessionId) {
             return data;
         },
         set: async (data) => {
-            const promises = [];
+            const toUpsert = [];
+            const toDelete = [];
+
             for (const type of Object.keys(data)) {
                 for (const id of Object.keys(data[type])) {
                     const value = data[type][id];
                     if (value) {
-                        promises.push(
-                            supabase.from('baileys_keys').upsert({
-                                session_id: sessionId,
-                                key_type: type,
-                                key_id: id,
-                                data: JSON.parse(JSON.stringify(value, BufferJSON.replacer)),
-                                updated_at: new Date().toISOString()
-                            })
-                        );
+                        toUpsert.push({
+                            session_id: sessionId,
+                            key_type: type,
+                            key_id: id,
+                            data: JSON.parse(JSON.stringify(value, BufferJSON.replacer)),
+                            updated_at: new Date().toISOString()
+                        });
                     } else {
-                        promises.push(
-                            supabase
-                                .from('baileys_keys')
-                                .delete()
-                                .eq('session_id', sessionId)
-                                .eq('key_type', type)
-                                .eq('key_id', id)
-                        );
+                        toDelete.push({ type, id });
                     }
                 }
+            }
+
+            const promises = [];
+
+            if (toUpsert.length > 0) {
+                promises.push(
+                    supabase
+                        .from('baileys_keys')
+                        .upsert(toUpsert, { onConflict: 'session_id,key_type,key_id' })
+                );
+            }
+
+            for (const item of toDelete) {
+                promises.push(
+                    supabase
+                        .from('baileys_keys')
+                        .delete()
+                        .eq('session_id', sessionId)
+                        .eq('key_type', item.type)
+                        .eq('key_id', item.id)
+                );
             }
             
             const results = await Promise.all(promises);
