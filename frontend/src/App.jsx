@@ -47,6 +47,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function App() {
   // --- Estados Principales ---
+  const [lightMode, setLightMode] = useState(false);
   const [botStatus, setBotStatus] = useState({ connected: false, checking: true, qr: null, offline: true, phoneUser: null });
   const [contacts, setContacts] = useState([]);
   const [filteredContacts, setFilteredContacts] = useState([]);
@@ -382,7 +383,7 @@ export default function App() {
   const activeContactsCount = contacts.filter(c => c.is_active).length;
 
   return (
-    <div className="min-h-screen flex flex-col justify-between relative bg-slate-950 text-slate-100 font-sans antialiased">
+    <div className={`min-h-screen flex flex-col justify-between relative ${lightMode ? "bg-white text-gray-900" : "bg-slate-950 text-slate-100"} font-sans antialiased`}>
       
       {/* Luces de Fondo (Glows) */}
       <div className="absolute top-0 left-1/4 w-[400px] h-[400px] bg-indigo-600/10 rounded-full blur-[140px] pointer-events-none z-0"></div>
@@ -408,14 +409,14 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
               Portal de Automatización
             </h1>
-            <p className="text-xs text-emerald-400 font-semibold tracking-wider uppercase">
-              Gateway de WhatsApp &bull; Santa Fe Ciudad
-            </p>
+            <p className="text-xs text-emerald-400 font-semibold tracking-wider uppercase">Santa Fe Ciudad</p>
           </div>
         </div>
 
         {/* Indicadores y Menú */}
         <div className="flex items-center gap-3 flex-wrap">
+          {/* Theme toggle button */}
+          <Button variant="outline" size="sm" onClick={() => setLightMode(!lightMode)} className="ml-4">{lightMode ? 'Oscuro' : 'Claro'}</Button>
           {/* Bot Connection Status */}
           <div className={`flex items-center gap-2.5 px-4 py-2 rounded-full border text-xs font-semibold shadow-md transition-all duration-300 ${
             botStatus.offline 
@@ -481,7 +482,7 @@ export default function App() {
               </CardContent>
               <CardFooter className="bg-slate-950/40 py-3 text-[10px] text-slate-500 flex justify-between border-t border-slate-900/50">
                 <span>Servidor: Hugging Face Spaces</span>
-                <span className="text-slate-400 font-semibold">{backendUrl.includes('render') ? 'Render Node' : 'HF Spaces'}</span>
+                 <span className="text-slate-400 font-semibold">Servicio</span>
               </CardFooter>
             </Card>
 
