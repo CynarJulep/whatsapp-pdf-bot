@@ -6,7 +6,7 @@ import {
   AlertCircle, RefreshCw, X, Trash2, Edit, Save, UserPlus,
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
   Check, Plus, Loader2, Zap, MapPin, ArrowRight,
-  History, Clock, ChevronDown, ChevronUp, HelpCircle
+  History, Clock, ChevronDown, ChevronUp, HelpCircle, BookOpen
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
+import SubtypesCatalogDialog from '@/components/SubtypesCatalogDialog';
 
 // ── PDF.js worker ──────────────────────────────────────────────────────────────
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -245,7 +247,7 @@ function DropZone({ onFile, connected, onOpenConfig }) {
 }
 
 // ── Step 1: Preview + Contact Picker (split layout) ────────────────────────────
-function PreviewAndPick({ file, contacts, onBack, onSend, sending, progress, progressText }) {
+function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText }) {
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -301,6 +303,14 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     });
   }, [file]);
 
+  const matchedCatalogItem = useMemo(() => {
+    if (!pdfInfo.subtipo || !subtypesCatalog || subtypesCatalog.length === 0) return null;
+    const cleanSub = pdfInfo.subtipo.trim().toLowerCase();
+    return subtypesCatalog.find(
+      item => item.subtipo.trim().toLowerCase() === cleanSub
+    );
+  }, [pdfInfo.subtipo, subtypesCatalog]);
+
   const filtered = activeContacts.filter(c => {
     const isAutoDetected = pdfInfo.areaDestino &&
       c.area_destino?.toLowerCase().trim() === pdfInfo.areaDestino.toLowerCase().trim();
@@ -347,21 +357,82 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
 
   return (
     <div className="animate-fade-slide-up w-full">
-      {/* PDF info banner */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      {/* PDF info banner / PAI catalog matching */}
+      <div className="flex flex-col gap-3 mb-4">
         {extracting ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
             <Loader2 className="w-4 h-4 animate-spin" /> Analizando documento...
           </div>
         ) : (
           <>
+            {/* Quick stats / detected items */}
+            <div className="flex flex-wrap items-center gap-2">
+              {pdfInfo.areaDestino && (
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs font-semibold text-primary">
+                  <MapPin className="w-3.5 h-3.5" />
+                  Área detectada: {pdfInfo.areaDestino}
+                </div>
+              )}
+            </div>
 
-            {pdfInfo.areaDestino && (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-sm font-semibold text-primary">
-                <MapPin className="w-3.5 h-3.5" />
-                Área detectada: {pdfInfo.areaDestino}
-              </div>
-            )}
+            {/* PAI Derivation Banner */}
+            <div className="animate-fade-slide-up">
+              {matchedCatalogItem ? (
+                matchedCatalogItem.derivar ? (
+                  <div className="flex items-start gap-3 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 shadow-sm">
+                    <Zap className="w-5 h-5 mt-0.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 animate-pulse" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold leading-none">Este reclamo SE DERIVA por PAI</p>
+                      <p className="text-xs leading-relaxed opacity-90">
+                        El subtipo <strong className="font-extrabold uppercase">{matchedCatalogItem.subtipo}</strong> está configurado para derivación.
+                      </p>
+                      {matchedCatalogItem.comentarios && (
+                        <p className="text-xs mt-1.5 font-semibold bg-emerald-500/10 dark:bg-emerald-500/5 px-2.5 py-1.5 rounded-lg border border-emerald-500/10 inline-block text-pretty">
+                          💡 {matchedCatalogItem.comentarios}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3 p-4 rounded-2xl bg-muted/60 border border-border/80 text-muted-foreground shadow-sm">
+                    <AlertCircle className="w-5 h-5 mt-0.5 text-muted-foreground flex-shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold leading-none text-foreground">Este reclamo NO se deriva por PAI</p>
+                      <p className="text-xs leading-relaxed">
+                        El subtipo <strong className="font-extrabold uppercase">{matchedCatalogItem.subtipo}</strong> está configurado como <span className="font-bold text-foreground">NO DERIVAR</span>.
+                      </p>
+                      {matchedCatalogItem.comentarios && (
+                        <p className="text-xs mt-1.5 font-medium bg-muted px-2.5 py-1.5 rounded-lg border inline-block text-pretty">
+                          📌 Nota: {matchedCatalogItem.comentarios}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="flex items-start gap-3 p-4 rounded-2xl bg-blue-50 border border-blue-200 dark:bg-blue-950/20 dark:border-blue-800 text-blue-800 dark:text-blue-300 shadow-sm justify-between flex-wrap sm:flex-nowrap">
+                  <div className="flex items-start gap-3">
+                    <HelpCircle className="w-5 h-5 mt-0.5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold leading-none">Subtipo no catalogado</p>
+                      <p className="text-xs leading-relaxed opacity-90">
+                        El subtipo <strong className="font-extrabold uppercase">{pdfInfo.subtipo || "Desconocido"}</strong> no está registrado en el buscador PAI. Podés derivarlo igual o registrarlo en el catálogo.
+                      </p>
+                    </div>
+                  </div>
+                  {pdfInfo.subtipo && (
+                    <Button 
+                      onClick={() => onAddSubtipoToCatalog(pdfInfo.subtipo, pdfInfo.tipo)}
+                      variant="outline" 
+                      size="sm" 
+                      className="text-xs bg-white text-blue-700 border-blue-200 hover:bg-blue-50 hover:text-blue-800 h-8 self-center flex-shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" /> Registrar
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -384,10 +455,10 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
             </button>
           </div>
           {pdfUrl ? (
-            <embed
-              src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH&scrollbar=0`}
-              type="application/pdf"
-              className="w-full aspect-[1/1.4142] rounded-b-2xl border-0 bg-background"
+            <iframe
+              src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`}
+              className="w-full aspect-[1/1.43] rounded-b-2xl border-0 bg-background overflow-hidden"
+              scrolling="no"
             />
           ) : (
             <div className="flex-1 flex items-center justify-center min-h-[400px]">
@@ -1067,9 +1138,14 @@ export default function App() {
   const [loadingShipments, setLoadingShipments] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
 
-  const [historyOpen, setHistoryOpen] = useState(false);
+   const [historyOpen, setHistoryOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
+
+  const [subtypesCatalog, setSubtypesCatalog] = useState([]);
+  const [loadingCatalog, setLoadingCatalog] = useState(true);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogPrefill, setCatalogPrefill] = useState(null);
 
   const filteredShipments = useMemo(() => {
     if (!historySearch.trim()) return shipments;
@@ -1121,6 +1197,34 @@ export default function App() {
     }
   }, [showToast]);
 
+  const loadCatalog = useCallback(async () => {
+    setLoadingCatalog(true);
+    try {
+      const { data, error } = await supabase
+        .from('subtypes_catalog')
+        .select('*')
+        .order('subtipo');
+      if (error) throw error;
+      setSubtypesCatalog(data || []);
+    } catch (err) {
+      console.error('Error al cargar catálogo PAI:', err);
+      showToast('Error al cargar catálogo PAI', 'error');
+    } finally {
+      setLoadingCatalog(false);
+    }
+  }, [showToast]);
+
+  const handleAddSubtipoToCatalog = (subtipo, tipo) => {
+    setCatalogPrefill({
+      tipo: tipo || 'RECLAMO',
+      subtipo: subtipo || '',
+      categoria: '',
+      derivar: true,
+      comentarios: ''
+    });
+    setCatalogOpen(true);
+  };
+
   useEffect(() => {
     if (historyOpen) {
       loadShipments();
@@ -1143,7 +1247,8 @@ export default function App() {
   useEffect(() => { 
     loadContacts(); 
     loadShipments();
-  }, [loadContacts, loadShipments]);
+    loadCatalog();
+  }, [loadContacts, loadShipments, loadCatalog]);
 
   useEffect(() => {
     let failedCount = 0;
@@ -1362,6 +1467,21 @@ export default function App() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button 
+                  onClick={() => {
+                    loadCatalog();
+                    setCatalogOpen(true);
+                  }} 
+                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-all duration-150 cursor-pointer"
+                >
+                  <BookOpen className="w-[18px] h-[18px]" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>Catálogo PAI</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button 
                   onClick={handleOpenConfig} 
                   className={`inline-flex items-center justify-center h-10 w-10 rounded-xl active:scale-95 transition-all duration-150 cursor-pointer ${
                     !botStatus.connected 
@@ -1390,7 +1510,10 @@ export default function App() {
           )}
           {step === 1 && file && (
             <PreviewAndPick
-              file={file} contacts={loadingContacts ? [] : contacts}
+              file={file} 
+              contacts={loadingContacts ? [] : contacts}
+              subtypesCatalog={subtypesCatalog}
+              onAddSubtipoToCatalog={handleAddSubtipoToCatalog}
               onBack={() => { setFile(null); setStep(0); }}
               onSend={handleSend} sending={sending}
               progress={progress} progressText={progressText}
@@ -1678,6 +1801,18 @@ export default function App() {
         )}
 
         {toast && <Toast key={toast.id} message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+        <SubtypesCatalogDialog
+          open={catalogOpen}
+          onOpenChange={setCatalogOpen}
+          catalog={subtypesCatalog}
+          loading={loadingCatalog}
+          onReload={loadCatalog}
+          showToast={showToast}
+          supabase={supabase}
+          prefill={catalogPrefill}
+          onClearPrefill={() => setCatalogPrefill(null)}
+        />
       </div>
     </TooltipProvider>
   );
