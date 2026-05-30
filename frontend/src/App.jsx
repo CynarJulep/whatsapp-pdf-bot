@@ -1114,6 +1114,23 @@ export default function App() {
     });
 
     const uniqueName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+    
+    const cleanFileNameString = (str) => {
+      return str.replace(/[\\/:*?"<>|]/g, '').trim();
+    };
+
+    let displayName = file.name;
+    if (pdfInfo && pdfInfo.solicitudNro) {
+      const sol = cleanFileNameString(pdfInfo.solicitudNro);
+      const sub = pdfInfo.subtipo ? cleanFileNameString(pdfInfo.subtipo.toUpperCase()) : '';
+      displayName = sub ? `${sol}(${sub}).pdf` : `${sol}.pdf`;
+    } else {
+      displayName = cleanFileNameString(file.name);
+      if (!displayName.toLowerCase().endsWith('.pdf')) {
+        displayName += '.pdf';
+      }
+    }
+
     try {
       const { error: uploadError } = await supabase.storage.from('pdfs').upload(uniqueName, file, { cacheControl: '3600', upsert: true });
       if (uploadError) throw uploadError;
@@ -1154,7 +1171,8 @@ export default function App() {
               caption: messageText,
               contactName: contact.name,
               solicitudNro: pdfInfo?.solicitudNro,
-              subtipo: pdfInfo?.subtipo
+              subtipo: pdfInfo?.subtipo,
+              displayName: displayName
             }),
           });
           const result = await res.json();

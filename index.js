@@ -271,7 +271,7 @@ app.get('/status', (req, res) => {
 });
 
 app.post('/send-pdf', async (req, res) => {
-    const { fileName, phoneNumber, caption, contactName, solicitudNro, subtipo } = req.body;
+    const { fileName, phoneNumber, caption, contactName, solicitudNro, subtipo, displayName } = req.body;
 
     // 1. Validation
     if (!fileName || !phoneNumber) {
@@ -328,7 +328,7 @@ app.post('/send-pdf', async (req, res) => {
         const response = await sock.sendMessage(jid, {
             document: fileBuffer,
             mimetype: 'application/pdf',
-            fileName: fileName,
+            fileName: displayName || fileName,
             caption: caption || 'Adjunto el documento solicitado.'
         });
 
