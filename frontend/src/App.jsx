@@ -270,11 +270,11 @@ function PreviewAndPick({ file, contacts, onBack, onSend, sending, progress, pro
       setPdfInfo(info);
       setExtracting(false);
 
-      // Construct default message text
       const defaultMsg = `Atención Ciudadana le hace llegar el siguiente reclamo:
 *Solicitud Nro:* ${info.solicitudNro || 'No especificado'}
 
 *Subtipo:* ${info.subtipo || 'No especificado'}
+
 *Ubicación:* ${info.ubicacion || 'No especificada'}
 
 *Descripción:* ${info.descripcion || 'No especificado'}
