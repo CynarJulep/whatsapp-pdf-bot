@@ -380,6 +380,59 @@ app.post('/send-pdf', async (req, res) => {
     }
 });
 
+// Endpoint to completely disconnect WhatsApp session and clear credentials
+app.post('/disconnect', async (req, res) => {
+    console.log(`[WhatsApp] Disconnecting session: ${SESSION_ID} requested by client...`);
+    try {
+        // 1. Delete credentials and keys from Supabase
+        const { error: errCreds } = await supabase
+            .from('baileys_creds')
+            .delete()
+            .eq('session_id', SESSION_ID);
+        
+        const { error: errKeys } = await supabase
+            .from('baileys_keys')
+            .delete()
+            .eq('session_id', SESSION_ID);
+
+        if (errCreds || errKeys) {
+            console.error('[WhatsApp] Error deleting credentials from Supabase:', errCreds || errKeys);
+        }
+
+        // 2. Terminate the WhatsApp Socket connection and logout cleanly
+        isConnected = false;
+        qrCode = null;
+        if (sock) {
+            try {
+                await sock.logout();
+            } catch (logoutErr) {
+                console.warn('[WhatsApp] Error logging out socket (might already be closed):', logoutErr);
+                try {
+                    sock.end();
+                } catch (endErr) {
+                    console.error('[WhatsApp] Error ending socket:', endErr);
+                }
+            }
+            sock = null;
+        }
+
+        // 3. Trigger reconnection to start fresh with a new QR code immediately
+        setTimeout(connectToWhatsApp, 3000);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Desconectado y credenciales borradas exitosamente.'
+        });
+    } catch (err) {
+        console.error('[WhatsApp] Error during disconnect:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Error al desconectar el bot de WhatsApp.',
+            error: err.message
+        });
+    }
+});
+
 // Process Error Handlers to keep the bot alive
 process.on('uncaughtException', (err) => {
     console.error('[System Alert] Uncaught Exception:', err);

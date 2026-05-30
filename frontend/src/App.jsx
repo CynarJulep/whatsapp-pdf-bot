@@ -763,22 +763,36 @@ function ContactsTab({ contacts, onReload, showToast }) {
 }
 
 // ── Status Tab ─────────────────────────────────────────────────────────────────
-function StatusTab({ botStatus, contacts }) {
+function StatusTab({ botStatus, contacts, onDisconnect, disconnecting }) {
   return (
     <div className="animate-fade-slide-up space-y-4">
       {(botStatus.connected || botStatus.offline) && (
         <Card className={`border-2 ${botStatus.offline ? 'border-muted' : 'border-emerald-200 dark:border-emerald-800'}`}>
-          <CardContent className="p-6 flex items-center gap-4">
-            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${botStatus.offline ? 'bg-muted' : 'bg-emerald-50 dark:bg-emerald-950'}`}>
-              {botStatus.offline ? <WifiOff className="w-7 h-7 text-muted-foreground" /> : <Wifi className="w-7 h-7 text-emerald-500" />}
+          <CardContent className="p-6 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${botStatus.offline ? 'bg-muted' : 'bg-emerald-50 dark:bg-emerald-950'}`}>
+                {botStatus.offline ? <WifiOff className="w-7 h-7 text-muted-foreground" /> : <Wifi className="w-7 h-7 text-emerald-500" />}
+              </div>
+              <div>
+                <p className="text-base font-bold">{botStatus.offline ? 'Sin conexión' : 'WhatsApp conectado'}</p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {botStatus.offline ? 'Reintentando conexión...' :
+                   (botStatus.phoneUser ? `+${botStatus.phoneUser.split('@')[0]}` : 'Activo')}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-base font-bold">{botStatus.offline ? 'Sin conexión' : 'WhatsApp conectado'}</p>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {botStatus.offline ? 'Reintentando conexión...' :
-                 (botStatus.phoneUser ? `+${botStatus.phoneUser.split('@')[0]}` : 'Activo')}
-              </p>
-            </div>
+            {botStatus.connected && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={onDisconnect}
+                disabled={disconnecting}
+                className="gap-2 flex-shrink-0"
+              >
+                {disconnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Desconectar
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -998,6 +1012,7 @@ export default function App() {
   
   const [shipments, setShipments] = useState([]);
   const [loadingShipments, setLoadingShipments] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const handleOpenConfig = () => {
     setConfigTab(botStatus.connected ? 'contacts' : 'status');
@@ -1044,6 +1059,19 @@ export default function App() {
       loadShipments();
     }
   }, [configOpen, configTab, loadShipments]);
+
+  const handleDisconnect = async () => {
+    setDisconnecting(true);
+    try {
+      const res = await fetch(`${backendUrl}/disconnect`, { method: 'POST' });
+      if (!res.ok) throw new Error();
+      showToast('Sesión cerrada y credenciales borradas de Supabase con éxito ✓');
+    } catch {
+      showToast('Error al intentar desconectar la sesión', 'error');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
 
   useEffect(() => {
     let failedCount = 0;
@@ -1156,20 +1184,6 @@ export default function App() {
     }
   };
 
-  const statusPill = botStatus.offline ? (
-    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
-      <span className="w-2 h-2 rounded-full bg-muted-foreground/40" /> Sin conexión
-    </div>
-  ) : botStatus.connected ? (
-    <div className="flex items-center gap-2 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> WhatsApp activo
-    </div>
-  ) : (
-    <div className="flex items-center gap-2 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/60 px-3 py-1.5 rounded-full border border-red-200 dark:border-red-800">
-      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /> Sin vincular
-    </div>
-  );
-
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -1185,20 +1199,6 @@ export default function App() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {/* Indicador de estado de WhatsApp */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-medium bg-card">
-                    <span className={`w-2 h-2 rounded-full ${botStatus.offline ? 'bg-muted-foreground/40' : botStatus.connected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500 animate-pulse'}`} />
-                    {botStatus.offline ? 'Desconectado' : botStatus.connected ? 'Conectado' : 'Sin vincular'}
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{botStatus.offline ? 'El backend no responde' : botStatus.connected ? 'WhatsApp Activo' : 'Vincular dispositivo'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
 
             <TooltipProvider>
               <Tooltip>
@@ -1283,7 +1283,7 @@ export default function App() {
               </TabsContent>
 
               <TabsContent value="status" className="outline-none">
-                <StatusTab botStatus={botStatus} contacts={contacts} />
+                <StatusTab botStatus={botStatus} contacts={contacts} onDisconnect={handleDisconnect} disconnecting={disconnecting} />
               </TabsContent>
 
               <TabsContent value="history" className="outline-none">
