@@ -856,11 +856,8 @@ function HistoryItem({ item }) {
                 </span>
               )}
             </div>
-            <p className="text-sm font-bold text-foreground">
-              {item.contact_name}
-              <span className="text-xs font-normal text-muted-foreground ml-1.5">
-                (+{item.contact_phone})
-              </span>
+            <p className="text-sm text-muted-foreground font-medium">
+              Para: <strong className="text-foreground font-bold">{item.contact_name}</strong>
             </p>
           </div>
         </div>
@@ -1295,35 +1292,39 @@ export default function App() {
                   return (
                     <div 
                       key={item.id} 
-                      className="flex items-center justify-between gap-3 p-4 border rounded-xl bg-card hover:bg-accent/20 transition-colors duration-200 text-xs shadow-sm animate-fade-slide-up"
+                      className="flex items-center justify-between gap-4 p-4 border rounded-xl bg-card hover:bg-accent/30 transition-all duration-200 shadow-sm animate-fade-slide-up"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {item.status === 'success' ? (
-                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0" />
-                        ) : (
-                          <span className="w-2.5 h-2.5 rounded-full bg-destructive flex-shrink-0" />
-                        )}
-                        <div className="min-w-0">
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div className="flex-shrink-0">
+                          {item.status === 'success' ? (
+                            <CheckCircle className="w-5 h-5 text-emerald-500" />
+                          ) : (
+                            <AlertCircle className="w-5 h-5 text-destructive" />
+                          )}
+                        </div>
+                        <div className="min-w-0 space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             {item.solicitud_nro && (
-                              <span className="font-bold text-foreground font-mono">
+                              <span className="font-bold text-foreground">
                                 Sol. Nro {item.solicitud_nro}
                               </span>
                             )}
                             {item.subtipo && (
-                              <Badge variant="outline" className="text-[10px] font-semibold px-1.5 py-0 bg-secondary/50">
+                              <Badge variant="outline" className="text-[10px] font-semibold px-2 py-0.5 bg-secondary/50">
                                 {item.subtipo}
                               </Badge>
                             )}
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-1 truncate">
-                            Para: <strong className="text-foreground">{item.contact_name}</strong> (+{item.contact_phone})
+                          <p className="text-xs text-muted-foreground">
+                            Para: <strong className="text-foreground font-semibold">{item.contact_name}</strong>
                           </p>
                         </div>
                       </div>
-                      <div className="text-right flex-shrink-0 text-muted-foreground font-mono text-[10px] space-y-0.5">
-                        <p className="font-semibold text-foreground">{dateStr}</p>
-                        <p>{timeStr}</p>
+                      <div className="text-right flex-shrink-0 text-muted-foreground font-mono text-[10px] space-y-1">
+                        <p className="font-bold text-foreground">{dateStr}</p>
+                        <p className="flex items-center gap-1 justify-end">
+                          <Clock className="w-3 h-3 text-muted-foreground" /> {timeStr}
+                        </p>
                       </div>
                     </div>
                   );
