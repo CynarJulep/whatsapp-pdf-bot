@@ -1407,22 +1407,19 @@ export default function App() {
       <div className="min-h-screen bg-background text-foreground flex flex-col">
 
         {/* ── Cabecera simplificada y adaptada para Google Sites ── */}
-        <div className="max-w-6xl mx-auto w-full px-4 pt-6 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border/40">
-          <div className="flex items-center gap-4">
-            <img 
-              src="/logo_pai.jpg" 
-              alt="PAI Logo" 
-              className="w-20 h-20 sm:w-24 sm:h-24 object-contain"
-              onError={(e) => { e.target.style.display = 'none'; }}
-            />
-            <div>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-foreground leading-none">
-                Protocolo de Acción Inmediata
-              </h1>
-              <p className="text-xs sm:text-sm font-semibold text-muted-foreground mt-1">
-                Derivaciones · Atención Ciudadana
-              </p>
-            </div>
+        <div className="max-w-6xl mx-auto w-full px-4 pt-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 border-b-2 border-[#003b73]">
+          <div className="flex flex-col gap-2">
+            <h1 
+              className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tighter leading-[0.95] uppercase select-none transition-all duration-300"
+              style={{
+                color: '#000000'
+              }}
+            >
+              Protocolo de Acción Inmediata
+            </h1>
+            <p className="text-xs sm:text-sm font-extrabold text-muted-foreground uppercase tracking-widest pl-1 mt-1">
+              Derivaciones · Atención Ciudadana
+            </p>
           </div>
           <div className="flex items-center gap-1.5 self-end sm:self-auto">
             <Tooltip>
@@ -1812,6 +1809,8 @@ export default function App() {
           supabase={supabase}
           prefill={catalogPrefill}
           onClearPrefill={() => setCatalogPrefill(null)}
+          contacts={contacts}
+          onReloadContacts={loadContacts}
         />
       </div>
     </TooltipProvider>

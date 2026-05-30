@@ -83,6 +83,30 @@
   --sidebar-accent-foreground: oklch(0.38 0.090 230);
   --sidebar-border: oklch(0.88 0.006 230);
   --sidebar-ring: oklch(0.38 0.090 230);
+
+  /* PAI Santa Fe variables */
+  --msf-green: oklch(0.5 0.13 158);
+  --msf-green-dark: oklch(0.42 0.12 158);
+  --msf-blue: oklch(0.38 0.09 260);
+  --msf-blue-soft: oklch(0.55 0.07 260);
+  --msf-row-derivar: oklch(0.94 0.038 158);
+  --msf-row-no: oklch(0.955 0.026 22);
+  --msf-card-derivar: oklch(0.965 0.034 158);
+  --msf-card-no: oklch(0.97 0.028 22);
+  --msf-card-default: oklch(0.995 0.006 260);
+  --msf-border-derivar: oklch(0.88 0.055 158 / 45%);
+  --msf-border-no: oklch(0.88 0.06 22 / 40%);
+  --msf-badge-no-bg: oklch(0.93 0.04 22);
+  --msf-badge-no-fg: oklch(0.4 0.1 22);
+  --msf-badge-derive-bg: oklch(0.9 0.055 158);
+  --msf-badge-derive-fg: oklch(0.34 0.1 158);
+  --msf-title-no: oklch(0.4 0.085 22);
+  --msf-header-start: oklch(0.32 0.12 262);
+  --msf-header-mid: oklch(0.38 0.11 258);
+  --msf-header-end: oklch(0.45 0.09 252);
+  --msf-header-fg: oklch(0.99 0.004 258);
+  --msf-header-muted: oklch(0.94 0.03 258);
+  --msf-header-shine: oklch(0.72 0.16 255 / 22%);
 }
 
 .dark {
@@ -117,6 +141,25 @@
   --sidebar-accent-foreground: oklch(0.96 0 0);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.65 0.130 230);
+
+  /* PAI Santa Fe dark variables */
+  --msf-row-derivar: oklch(0.32 0.05 158);
+  --msf-row-no: oklch(0.3 0.045 22);
+  --msf-card-derivar: oklch(0.28 0.045 158);
+  --msf-card-no: oklch(0.29 0.042 22);
+  --msf-border-derivar: oklch(0.55 0.08 158 / 55%);
+  --msf-border-no: oklch(0.55 0.08 22 / 45%);
+  --msf-badge-no-bg: oklch(0.34 0.06 22);
+  --msf-badge-no-fg: oklch(0.88 0.04 22);
+  --msf-badge-derive-bg: oklch(0.38 0.07 158);
+  --msf-badge-derive-fg: oklch(0.9 0.04 158);
+  --msf-title-no: oklch(0.86 0.038 22);
+  --msf-header-start: oklch(0.36 0.11 262);
+  --msf-header-mid: oklch(0.42 0.1 258);
+  --msf-header-end: oklch(0.48 0.09 252);
+  --msf-header-fg: oklch(0.99 0.004 258);
+  --msf-header-muted: oklch(0.9 0.035 258);
+  --msf-header-shine: oklch(0.65 0.14 255 / 28%);
 }
 
 @layer base {
@@ -258,4 +301,40 @@
 
 .send-btn:active:not(:disabled) {
   transform: translateY(0);
+}
+
+/* ===== PAI Santa Fe Gradient Header ===== */
+@layer components {
+  .msf-header {
+    position: relative;
+    overflow: hidden;
+    color: var(--msf-header-fg);
+    background: linear-gradient(
+      122deg,
+      var(--msf-header-start) 0%,
+      var(--msf-header-mid) 42%,
+      var(--msf-header-end) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%) inset,
+      0 8px 32px -8px oklch(0.22 0.14 270 / 55%);
+  }
+
+  .msf-header::before {
+    content: "";
+    position: absolute;
+    inset: -40% -20% auto 35%;
+    height: 140%;
+    background: radial-gradient(
+      closest-side,
+      var(--msf-header-shine),
+      transparent 70%
+    );
+    pointer-events: none;
+  }
+
+  .msf-header > * {
+    position: relative;
+    z-index: 1;
+  }
 }
