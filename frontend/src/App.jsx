@@ -6,7 +6,7 @@ import {
   AlertCircle, RefreshCw, X, Trash2, Edit, Save, UserPlus,
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
   Check, Plus, Loader2, Zap, MapPin, ArrowRight,
-  History, Clock, ChevronDown, ChevronUp
+  History, Clock, ChevronDown, ChevronUp, HelpCircle
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -1069,6 +1069,7 @@ export default function App() {
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const filteredShipments = useMemo(() => {
     if (!historySearch.trim()) return shipments;
@@ -1306,7 +1307,7 @@ export default function App() {
             <img 
               src="/logo_pai.jpg" 
               alt="PAI Logo" 
-              className="w-12 h-12 object-contain border border-border/80 bg-white shadow-sm p-1 rounded-sm"
+              className="w-20 h-20 sm:w-24 sm:h-24 object-contain"
               onError={(e) => { e.target.style.display = 'none'; }}
             />
             <div>
@@ -1318,52 +1319,61 @@ export default function App() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setDark(!dark)} className="h-9 w-9">
-                    {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent><p>{dark ? 'Modo claro' : 'Modo oscuro'}</p></TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button 
+                  onClick={() => setHelpOpen(true)} 
+                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 active:scale-95 transition-all duration-150 cursor-pointer"
+                >
+                  <HelpCircle className="w-[18px] h-[18px]" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>¿Cómo funciona?</p></TooltipContent>
+            </Tooltip>
 
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={() => {
-                      loadShipments();
-                      setHistoryOpen(true);
-                    }} 
-                    className="h-9 w-9"
-                  >
-                    <History className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent><p>Historial Completo</p></TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button 
+                  onClick={() => setDark(!dark)} 
+                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-all duration-150 cursor-pointer"
+                >
+                  {dark ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>{dark ? 'Modo claro' : 'Modo oscuro'}</p></TooltipContent>
+            </Tooltip>
 
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button 
-                    variant={botStatus.connected ? "outline" : "default"} 
-                    size="icon" 
-                    onClick={handleOpenConfig} 
-                    className={`h-9 w-9 ${!botStatus.connected ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse ring-2 ring-red-500/25' : ''}`}
-                  >
-                    <Settings className={`w-4 h-4 ${botStatus.connected ? 'text-muted-foreground hover:text-foreground' : 'text-white'}`} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent><p>Configuración de Destinatarios</p></TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button 
+                  onClick={() => {
+                    loadShipments();
+                    setHistoryOpen(true);
+                  }} 
+                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-all duration-150 cursor-pointer"
+                >
+                  <History className="w-[18px] h-[18px]" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>Historial Completo</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button 
+                  onClick={handleOpenConfig} 
+                  className={`inline-flex items-center justify-center h-10 w-10 rounded-xl active:scale-95 transition-all duration-150 cursor-pointer ${
+                    !botStatus.connected 
+                      ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse ring-2 ring-red-500/25' 
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                  }`}
+                >
+                  <Settings className="w-[18px] h-[18px]" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>Configuración</p></TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
@@ -1519,6 +1529,66 @@ export default function App() {
                 loading={loadingShipments} 
                 onReload={loadShipments} 
               />
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Modal de Ayuda / Bienvenida ── */}
+        <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+          <DialogContent className="sm:max-w-lg backdrop-blur-xl bg-card/95 border-border/50 shadow-2xl">
+            <div className="flex flex-col items-center text-center px-2 py-4 space-y-6">
+              <img 
+                src="/logo_pai.jpg" 
+                alt="PAI Logo" 
+                className="w-28 h-28 object-contain"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+
+              <div className="space-y-2">
+                <h2 className="text-2xl font-black tracking-tight text-foreground">
+                  Bienvenido al PAI
+                </h2>
+                <p className="text-sm text-muted-foreground font-medium">
+                  Protocolo de Acción Inmediata · Atención Ciudadana
+                </p>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4 text-left text-sm text-foreground/90 leading-relaxed">
+                <p>
+                  Este sistema permite derivar los reclamos del SAC de forma rápida y directa hacia las áreas municipales correspondientes, a través del teléfono de Protocolo por WhatsApp.
+                </p>
+
+                <div className="space-y-3 pl-1">
+                  <div className="flex items-start gap-3">
+                    <span className="text-primary font-black text-base leading-none mt-0.5">1.</span>
+                    <p><strong>Descargá el reclamo</strong> desde el SAC en formato PDF.</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="text-primary font-black text-base leading-none mt-0.5">2.</span>
+                    <p><strong>Arrastrá o subí el PDF</strong> en esta página. El sistema detecta automáticamente el área destino y el tipo de reclamo.</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="text-primary font-black text-base leading-none mt-0.5">3.</span>
+                    <p><strong>Confirmá el destinatario</strong> y presioná Enviar. El reclamo se envía de inmediato por WhatsApp desde el teléfono de Protocolo hacia el área municipal correspondiente.</p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <p className="text-muted-foreground text-xs leading-relaxed">
+                  Una vez enviado, por favor registrá en el SAC que el reclamo ya fue derivado por PAI.
+                </p>
+
+                <p className="text-muted-foreground text-xs font-semibold">
+                  Gracias por colaborar en que los reclamos de los vecinos tengan atención inmediata.
+                </p>
+              </div>
+
+              <Button onClick={() => setHelpOpen(false)} className="w-full h-11 font-bold text-sm rounded-xl mt-2">
+                Entendido
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
