@@ -183,7 +183,7 @@ function DropZone({ onFile, connected, onOpenConfig }) {
             onOpenConfig();
           }
         }}
-        className={`dropzone-idle w-full max-w-xl border-2 border-dashed rounded-3xl cursor-pointer
+        className={`dropzone-idle w-full max-w-4xl border-2 border-dashed rounded-3xl cursor-pointer
           flex flex-col items-center justify-center gap-6 py-16 px-8
           transition-all duration-300 select-none
           ${!connected
@@ -1034,7 +1034,10 @@ export default function App() {
     finally { setLoadingContacts(false); }
   }, [showToast]);
 
-  useEffect(() => { loadContacts(); }, [loadContacts]);
+  useEffect(() => { 
+    loadContacts(); 
+    loadShipments();
+  }, [loadContacts, loadShipments]);
 
   const loadShipments = useCallback(async () => {
     setLoadingShipments(true);
@@ -1248,6 +1251,68 @@ export default function App() {
               progress={progress} progressText={progressText}
             />
           )}
+
+          {/* Mini Historial de Envíos en tiempo real */}
+          <div className="mt-12 w-full max-w-4xl mx-auto space-y-4">
+            <div className="flex items-center gap-2 border-b pb-2">
+              <History className="w-5 h-5 text-primary" />
+              <h2 className="text-base font-bold text-foreground">Últimas Derivaciones</h2>
+              <span className="text-xs text-muted-foreground ml-auto">Últimos 5 envíos</span>
+            </div>
+
+            {loadingShipments && shipments.length === 0 ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+              </div>
+            ) : shipments.length === 0 ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                No hay derivaciones registradas recientemente.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                {shipments.slice(0, 5).map((item) => {
+                  const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
+                  const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '';
+                  
+                  return (
+                    <div 
+                      key={item.id} 
+                      className="flex items-center justify-between gap-3 p-4 border rounded-xl bg-card hover:bg-accent/20 transition-colors duration-200 text-xs shadow-sm animate-fade-slide-up"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {item.status === 'success' ? (
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                        ) : (
+                          <span className="w-2.5 h-2.5 rounded-full bg-destructive flex-shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {item.solicitud_nro && (
+                              <span className="font-bold text-foreground font-mono">
+                                Sol. Nro {item.solicitud_nro}
+                              </span>
+                            )}
+                            {item.subtipo && (
+                              <Badge variant="outline" className="text-[10px] font-semibold px-1.5 py-0 bg-secondary/50">
+                                {item.subtipo}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                            Para: <strong className="text-foreground">{item.contact_name}</strong> (+{item.contact_phone})
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0 text-muted-foreground font-mono text-[10px] space-y-0.5">
+                        <p className="font-semibold text-foreground">{dateStr}</p>
+                        <p>{timeStr}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </main>
 
         <footer className="border-t py-4 text-center text-xs text-muted-foreground">
