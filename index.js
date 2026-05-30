@@ -271,7 +271,7 @@ app.get('/status', (req, res) => {
 });
 
 app.post('/send-pdf', async (req, res) => {
-    const { fileName, phoneNumber, caption } = req.body;
+    const { fileName, phoneNumber, caption, contactName, solicitudNro, subtipo } = req.body;
 
     // 1. Validation
     if (!fileName || !phoneNumber) {
@@ -333,6 +333,21 @@ app.post('/send-pdf', async (req, res) => {
         });
 
         console.log(`[Webhook] PDF successfully sent. Message ID: ${response.key.id}`);
+
+        // Log successful shipment to database
+        try {
+            await supabase.from('shipments').insert({
+                contact_name: contactName || 'Desconocido',
+                contact_phone: cleanNumber,
+                solicitud_nro: solicitudNro || null,
+                subtipo: subtipo || null,
+                status: 'success',
+                message_text: caption || 'Adjunto el documento solicitado.'
+            });
+        } catch (dbErr) {
+            console.error('[Webhook] Error logging successful shipment to database:', dbErr);
+        }
+
         return res.status(200).json({
             success: true,
             message: 'Archivo enviado exitosamente.',
@@ -341,6 +356,22 @@ app.post('/send-pdf', async (req, res) => {
 
     } catch (err) {
         console.error('[Webhook] Error sending PDF:', err);
+
+        // Log failed shipment to database
+        try {
+            const cleanNumber = phoneNumber ? phoneNumber.replace(/[^0-9]/g, '') : 'Desconocido';
+            await supabase.from('shipments').insert({
+                contact_name: contactName || 'Desconocido',
+                contact_phone: cleanNumber,
+                solicitud_nro: solicitudNro || null,
+                subtipo: subtipo || null,
+                status: 'failed',
+                message_text: caption || 'Adjunto el documento solicitado.'
+            });
+        } catch (dbErr) {
+            console.error('[Webhook] Error logging failed shipment to database:', dbErr);
+        }
+
         return res.status(500).json({
             success: false,
             message: 'Error interno del servidor al procesar y enviar el archivo.',

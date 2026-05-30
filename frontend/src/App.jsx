@@ -5,7 +5,8 @@ import {
   UploadCloud, FileText, Send, Users, Settings, CheckCircle,
   AlertCircle, RefreshCw, X, Trash2, Edit, Save, UserPlus,
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
-  Check, Plus, Loader2, Zap, MapPin, ArrowRight
+  Check, Plus, Loader2, Zap, MapPin, ArrowRight,
+  History, Clock, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -813,6 +814,171 @@ function StatusTab({ botStatus, contacts }) {
   );
 }
 
+function HistoryItem({ item }) {
+  const [expanded, setExpanded] = useState(false);
+  const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
+  
+  return (
+    <div className="border rounded-xl p-4 bg-card hover:bg-accent/30 transition-colors shadow-sm duration-200">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex-shrink-0">
+            {item.status === 'success' ? (
+              <CheckCircle className="w-5 h-5 text-emerald-500" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-destructive" />
+            )}
+          </div>
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              {item.subtipo && (
+                <Badge variant="outline" className="text-xs font-semibold px-2 py-0 bg-secondary/50">
+                  {item.subtipo}
+                </Badge>
+              )}
+              {item.solicitud_nro && (
+                <span className="text-xs text-muted-foreground font-mono">
+                  Sol. Nro: <strong className="text-foreground">{item.solicitud_nro}</strong>
+                </span>
+              )}
+            </div>
+            <p className="text-sm font-bold text-foreground">
+              {item.contact_name}
+              <span className="text-xs font-normal text-muted-foreground ml-1.5">
+                (+{item.contact_phone})
+              </span>
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-shrink-0">
+          <Clock className="w-3.5 h-3.5" />
+          <span>{timeStr}</span>
+        </div>
+      </div>
+      
+      {item.message_text && (
+        <div className="mt-3 pt-3 border-t">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline transition-all"
+          >
+            {expanded ? (
+              <>Ocultar mensaje <ChevronUp className="w-3 h-3" /></>
+            ) : (
+              <>Ver mensaje enviado <ChevronDown className="w-3 h-3" /></>
+            )}
+          </button>
+          {expanded && (
+            <div className="mt-2 p-3 bg-muted/40 border rounded-lg text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed animate-fade-slide-up">
+              {item.message_text}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HistoryTab({ shipments, loading, onReload }) {
+  // Agrupar shipments por día
+  const groups = useMemo(() => {
+    const map = {};
+    shipments.forEach(s => {
+      if (!s.created_at) return;
+      const dateObj = new Date(s.created_at);
+      const localDateStr = dateObj.toLocaleDateString('es-AR', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      
+      let dayLabel = localDateStr;
+      const today = new Date();
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      
+      if (dateObj.toDateString() === today.toDateString()) {
+        dayLabel = 'Hoy';
+      } else if (dateObj.toDateString() === yesterday.toDateString()) {
+        dayLabel = 'Ayer';
+      } else {
+        dayLabel = dateObj.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+        dayLabel = dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1);
+      }
+      
+      if (!map[localDateStr]) {
+        map[localDateStr] = {
+          label: dayLabel,
+          items: []
+        };
+      }
+      map[localDateStr].items.push(s);
+    });
+    return Object.values(map);
+  }, [shipments]);
+
+  return (
+    <div className="animate-fade-slide-up space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-bold">Historial de Envíos</h3>
+          <p className="text-xs text-muted-foreground">Registro de todos los PDFs enviados y su estado.</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onReload}
+          disabled={loading}
+          className="gap-2 h-8"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          Actualizar
+        </Button>
+      </div>
+
+      {loading && shipments.length === 0 ? (
+        <div className="space-y-4 py-8">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-20 w-full rounded-xl" />
+            </div>
+          ))}
+        </div>
+      ) : shipments.length === 0 ? (
+        <Card className="border-dashed py-12 text-center">
+          <CardContent className="flex flex-col items-center justify-center space-y-3">
+            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
+              <History className="w-6 h-6" />
+            </div>
+            <p className="text-sm font-bold text-muted-foreground">No hay envíos registrados</p>
+            <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+              Los documentos PDF que envíes a través de esta plataforma aparecerán aquí agrupados por día.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <ScrollArea className="h-[55vh] pr-2">
+          <div className="space-y-6">
+            {groups.map(group => (
+              <div key={group.label} className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-extrabold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                    {group.label}
+                  </span>
+                  <Separator className="flex-grow" />
+                </div>
+                <div className="space-y-3">
+                  {group.items.map(item => (
+                    <HistoryItem key={item.id} item={item} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      )}
+    </div>
+  );
+}
+
 // ── MAIN APP ───────────────────────────────────────────────────────────────────
 export default function App() {
   const [dark, setDark] = useState(false);
@@ -829,6 +995,9 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
   const [sendingDetails, setSendingDetails] = useState(null);
+  
+  const [shipments, setShipments] = useState([]);
+  const [loadingShipments, setLoadingShipments] = useState(false);
 
   const handleOpenConfig = () => {
     setConfigTab(botStatus.connected ? 'contacts' : 'status');
@@ -851,6 +1020,30 @@ export default function App() {
   }, [showToast]);
 
   useEffect(() => { loadContacts(); }, [loadContacts]);
+
+  const loadShipments = useCallback(async () => {
+    setLoadingShipments(true);
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setShipments(data || []);
+    } catch (err) {
+      console.error('Error al cargar historial:', err);
+      showToast('Error al cargar el historial de envíos', 'error');
+    } finally {
+      setLoadingShipments(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    if (configOpen && configTab === 'history') {
+      loadShipments();
+    }
+  }, [configOpen, configTab, loadShipments]);
 
   useEffect(() => {
     let failedCount = 0;
@@ -924,7 +1117,14 @@ export default function App() {
         try {
           const res = await fetch(`${backendUrl}/send-pdf`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileName: uniqueName, phoneNumber: contact.phone_number, caption: messageText }),
+            body: JSON.stringify({
+              fileName: uniqueName,
+              phoneNumber: contact.phone_number,
+              caption: messageText,
+              contactName: contact.name,
+              solicitudNro: pdfInfo?.solicitudNro,
+              subtipo: pdfInfo?.subtipo
+            }),
           });
           const result = await res.json();
           results.push({ ok: res.ok && result.success });
@@ -937,6 +1137,9 @@ export default function App() {
       if (fail === 0) showToast(`¡Enviado a ${ok} destinatario${ok > 1 ? 's' : ''}! ✓`);
       else showToast(`${ok} enviado${ok !== 1 ? 's' : ''}, ${fail} falló`, 'error');
       
+      // Actualizar historial
+      loadShipments();
+
       setTimeout(() => {
         setFile(null);
         setStep(0);
@@ -1059,12 +1262,15 @@ export default function App() {
               <DialogDescription>Gestioná los destinatarios del protocolo y el estado de la conexión a WhatsApp.</DialogDescription>
             </DialogHeader>
             <Tabs value={configTab} onValueChange={setConfigTab} className="w-full mt-2">
-              <TabsList className="grid grid-cols-2 max-w-md mx-auto mb-6">
+              <TabsList className="grid grid-cols-3 max-w-lg mx-auto mb-6">
                 <TabsTrigger value="contacts" className="gap-2 text-sm">
                   <Users className="w-4 h-4" /> Contactos
                 </TabsTrigger>
                 <TabsTrigger value="status" className="gap-2 text-sm">
                   <Settings className="w-4 h-4" /> Estado de WhatsApp
+                </TabsTrigger>
+                <TabsTrigger value="history" className="gap-2 text-sm">
+                  <History className="w-4 h-4" /> Historial
                 </TabsTrigger>
               </TabsList>
 
@@ -1078,6 +1284,10 @@ export default function App() {
 
               <TabsContent value="status" className="outline-none">
                 <StatusTab botStatus={botStatus} contacts={contacts} />
+              </TabsContent>
+
+              <TabsContent value="history" className="outline-none">
+                <HistoryTab shipments={shipments} loading={loadingShipments} onReload={loadShipments} />
               </TabsContent>
             </Tabs>
           </DialogContent>
