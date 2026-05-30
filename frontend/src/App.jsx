@@ -892,57 +892,55 @@ function StatusTab({ botStatus, contacts, onDisconnect, disconnecting }) {
 function HistoryItem({ item }) {
   const [expanded, setExpanded] = useState(false);
   const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
-  
+  const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+
+  const isSuccess = item.status === 'success';
+
   return (
-    <div className="border rounded-xl p-4 bg-card hover:bg-accent/30 transition-colors shadow-sm duration-200">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex-shrink-0">
-            {item.status === 'success' ? (
-              <CheckCircle className="w-5 h-5 text-emerald-500" />
-            ) : (
-              <AlertCircle className="w-5 h-5 text-destructive" />
-            )}
-          </div>
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              {item.subtipo && (
-                <Badge variant="outline" className="text-xs font-semibold px-2 py-0 bg-secondary/50">
-                  {item.subtipo}
-                </Badge>
-              )}
-              {item.solicitud_nro && (
-                <span className="text-xs text-muted-foreground font-mono">
-                  Sol. Nro: <strong className="text-foreground">{item.solicitud_nro}</strong>
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground font-medium">
-              Para: <strong className="text-foreground font-bold">{item.contact_name}</strong>
-            </p>
-          </div>
+    <div className="border border-border/85 bg-card hover:bg-accent/10 transition-all duration-150 text-sm font-medium">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
+          <span className={`text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 border ${
+            isSuccess 
+              ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30' 
+              : 'bg-red-500/10 text-red-700 border-red-500/20 dark:text-red-400 dark:border-red-500/30'
+          }`}>
+            {isSuccess ? '[✓ ENVIADO]' : '[✗ FALLÓ]'}
+          </span>
+
+          <span className="font-bold text-foreground">
+            Sol. Nro {item.solicitud_nro || 'S/N'}
+          </span>
+
+          <span className="text-muted-foreground">|</span>
+
+          <span className="text-foreground uppercase tracking-wide font-semibold">
+            {item.subtipo || 'SIN SUBTIPO'}
+          </span>
+
+          <span className="text-muted-foreground">|</span>
+
+          <span className="text-muted-foreground">
+            Para: <strong className="text-foreground font-semibold">{item.contact_name}</strong>
+          </span>
         </div>
-        
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-shrink-0">
-          <Clock className="w-3.5 h-3.5" />
-          <span>{timeStr}</span>
+
+        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start md:self-auto">
+          <span>{dateStr} {timeStr}</span>
         </div>
       </div>
-      
+
       {item.message_text && (
-        <div className="mt-3 pt-3 border-t">
+        <div className="border-t border-border/60 bg-muted/10">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline transition-all"
+            className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent/20 transition-all text-left"
           >
-            {expanded ? (
-              <>Ocultar mensaje <ChevronUp className="w-3 h-3" /></>
-            ) : (
-              <>Ver mensaje enviado <ChevronDown className="w-3 h-3" /></>
-            )}
+            <span>{expanded ? 'Ocultar mensaje completo' : 'Ver mensaje completo'}</span>
+            {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
           {expanded && (
-            <div className="mt-2 p-3 bg-muted/40 border rounded-lg text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed animate-fade-slide-up">
+            <div className="px-4 pb-4 pt-1 text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed border-t border-border/40 bg-card">
               {item.message_text}
             </div>
           )}
@@ -987,12 +985,9 @@ function HistoryTab({ shipments, loading, onReload }) {
   }, [shipments]);
 
   return (
-    <div className="animate-fade-slide-up space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-base font-bold">Historial de Envíos</h3>
-          <p className="text-xs text-muted-foreground">Registro de todos los PDFs enviados y su estado.</p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between border-b pb-2">
+        <p className="text-xs text-muted-foreground">Registro de todos los PDFs enviados y su estado.</p>
         <Button
           variant="outline"
           size="sm"
@@ -1010,13 +1005,13 @@ function HistoryTab({ shipments, loading, onReload }) {
           {[1, 2, 3].map(i => (
             <div key={i} className="space-y-2">
               <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-20 w-full rounded-xl" />
+              <Skeleton className="h-20 w-full rounded-md" />
             </div>
           ))}
         </div>
       ) : shipments.length === 0 ? (
-        <Card className="border-dashed py-12 text-center">
-          <CardContent className="flex flex-col items-center justify-center space-y-3">
+        <div className="border border-dashed py-12 text-center bg-card/20">
+          <div className="flex flex-col items-center justify-center space-y-3">
             <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
               <History className="w-6 h-6" />
             </div>
@@ -1024,8 +1019,8 @@ function HistoryTab({ shipments, loading, onReload }) {
             <p className="text-xs text-muted-foreground max-w-xs mx-auto">
               Los documentos PDF que envíes a través de esta plataforma aparecerán aquí agrupados por día.
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : (
         <ScrollArea className="h-[55vh] pr-2">
           <div className="space-y-6">
@@ -1072,6 +1067,21 @@ export default function App() {
   const [loadingShipments, setLoadingShipments] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+
+  const filteredShipments = useMemo(() => {
+    if (!historySearch.trim()) return shipments;
+    const term = historySearch.toLowerCase().trim();
+    return shipments.filter(s => {
+      const sol = (s.solicitud_nro || '').toLowerCase();
+      const sub = (s.subtipo || '').toLowerCase();
+      const contact = (s.contact_name || '').toLowerCase();
+      const msg = (s.message_text || '').toLowerCase();
+      return sol.includes(term) || sub.includes(term) || contact.includes(term) || msg.includes(term);
+    });
+  }, [shipments, historySearch]);
+
   const handleOpenConfig = () => {
     setConfigTab(botStatus.connected ? 'contacts' : 'status');
     setConfigOpen(true);
@@ -1111,10 +1121,10 @@ export default function App() {
   }, [showToast]);
 
   useEffect(() => {
-    if (configOpen && configTab === 'history') {
+    if (historyOpen) {
       loadShipments();
     }
-  }, [configOpen, configTab, loadShipments]);
+  }, [historyOpen, loadShipments]);
 
   const handleDisconnect = async () => {
     setDisconnecting(true);
@@ -1291,17 +1301,24 @@ export default function App() {
       <div className="min-h-screen bg-background text-foreground flex flex-col">
 
         {/* ── Cabecera simplificada y adaptada para Google Sites ── */}
-        <div className="max-w-6xl mx-auto w-full px-4 pt-6 pb-2 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-foreground leading-none">
-              Protocolo de Acción Inmediata
-            </h1>
-            <p className="text-xs sm:text-sm font-semibold text-muted-foreground mt-1">
-              Derivaciones · Atención Ciudadana
-            </p>
+        <div className="max-w-6xl mx-auto w-full px-4 pt-6 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border/40">
+          <div className="flex items-center gap-4">
+            <img 
+              src="/logo_pai.jpg" 
+              alt="PAI Logo" 
+              className="w-12 h-12 object-contain border border-border/80 bg-white shadow-sm p-1 rounded-sm"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-foreground leading-none">
+                Protocolo de Acción Inmediata
+              </h1>
+              <p className="text-xs sm:text-sm font-semibold text-muted-foreground mt-1">
+                Derivaciones · Atención Ciudadana
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-
+          <div className="flex items-center gap-2 self-end sm:self-auto">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1317,6 +1334,25 @@ export default function App() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={() => {
+                      loadShipments();
+                      setHistoryOpen(true);
+                    }} 
+                    className="h-9 w-9"
+                  >
+                    <History className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Historial Completo</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
                     variant={botStatus.connected ? "outline" : "default"} 
                     size="icon" 
                     onClick={handleOpenConfig} 
@@ -1325,7 +1361,7 @@ export default function App() {
                     <Settings className={`w-4 h-4 ${botStatus.connected ? 'text-muted-foreground hover:text-foreground' : 'text-white'}`} />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent><p>Configurar Destinatarios y Estado</p></TooltipContent>
+                <TooltipContent><p>Configuración de Destinatarios</p></TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
@@ -1368,47 +1404,47 @@ export default function App() {
                 No hay derivaciones registradas recientemente.
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 gap-2">
                 {shipments.slice(0, 5).map((item) => {
                   const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
-                  const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '';
-                  
+                  const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+                  const isSuccess = item.status === 'success';
+
                   return (
                     <div 
                       key={item.id} 
-                      className="flex items-center justify-between gap-4 p-4 border rounded-xl bg-card hover:bg-accent/30 transition-all duration-200 shadow-sm animate-fade-slide-up"
+                      className="border border-border/80 bg-card hover:bg-accent/10 transition-all duration-150 text-sm font-medium animate-fade-slide-up"
                     >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <div className="flex-shrink-0">
-                          {item.status === 'success' ? (
-                            <CheckCircle className="w-5 h-5 text-emerald-500" />
-                          ) : (
-                            <AlertCircle className="w-5 h-5 text-destructive" />
-                          )}
-                        </div>
-                        <div className="min-w-0 space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {item.solicitud_nro && (
-                              <span className="font-bold text-foreground">
-                                Sol. Nro {item.solicitud_nro}
-                              </span>
-                            )}
-                            {item.subtipo && (
-                              <Badge variant="outline" className="text-[10px] font-semibold px-2 py-0.5 bg-secondary/50">
-                                {item.subtipo}
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
+                          <span className={`text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 border ${
+                            isSuccess 
+                              ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30' 
+                              : 'bg-red-500/10 text-red-700 border-red-500/20 dark:text-red-400 dark:border-red-500/30'
+                          }`}>
+                            {isSuccess ? '[✓ ENVIADO]' : '[✗ FALLÓ]'}
+                          </span>
+
+                          <span className="font-bold text-foreground">
+                            Sol. Nro {item.solicitud_nro || 'S/N'}
+                          </span>
+
+                          <span className="text-muted-foreground">|</span>
+
+                          <span className="text-foreground uppercase tracking-wide font-semibold">
+                            {item.subtipo || 'SIN SUBTIPO'}
+                          </span>
+
+                          <span className="text-muted-foreground">|</span>
+
+                          <span className="text-muted-foreground">
                             Para: <strong className="text-foreground font-semibold">{item.contact_name}</strong>
-                          </p>
+                          </span>
                         </div>
-                      </div>
-                      <div className="text-right flex-shrink-0 text-muted-foreground font-mono text-[10px] space-y-1">
-                        <p className="font-bold text-foreground">{dateStr}</p>
-                        <p className="flex items-center gap-1 justify-end">
-                          <Clock className="w-3 h-3 text-muted-foreground" /> {timeStr}
-                        </p>
+
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start sm:self-auto">
+                          <span>{dateStr} {timeStr}</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1430,15 +1466,12 @@ export default function App() {
               <DialogDescription>Gestioná los destinatarios del protocolo y el estado de la conexión a WhatsApp.</DialogDescription>
             </DialogHeader>
             <Tabs value={configTab} onValueChange={setConfigTab} className="w-full mt-2">
-              <TabsList className="grid grid-cols-3 max-w-lg mx-auto mb-6">
+              <TabsList className="grid grid-cols-2 max-w-sm mx-auto mb-6">
                 <TabsTrigger value="contacts" className="gap-2 text-sm">
                   <Users className="w-4 h-4" /> Contactos
                 </TabsTrigger>
                 <TabsTrigger value="status" className="gap-2 text-sm">
                   <Settings className="w-4 h-4" /> Estado de WhatsApp
-                </TabsTrigger>
-                <TabsTrigger value="history" className="gap-2 text-sm">
-                  <History className="w-4 h-4" /> Historial
                 </TabsTrigger>
               </TabsList>
 
@@ -1453,11 +1486,40 @@ export default function App() {
               <TabsContent value="status" className="outline-none">
                 <StatusTab botStatus={botStatus} contacts={contacts} onDisconnect={handleDisconnect} disconnecting={disconnecting} />
               </TabsContent>
-
-              <TabsContent value="history" className="outline-none">
-                <HistoryTab shipments={shipments} loading={loadingShipments} onReload={loadShipments} />
-              </TabsContent>
             </Tabs>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Dialog de Historial Dedicado con Buscador ── */}
+        <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <History className="w-5 h-5 text-primary" />
+                Historial de Derivaciones
+              </DialogTitle>
+              <DialogDescription>
+                Buscador y registro completo de todos los PDFs enviados.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-2 space-y-4">
+              {/* Buscador Dedicado */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Buscar por solicitud, subtipo o destinatario..." 
+                  value={historySearch} 
+                  onChange={(e) => setHistorySearch(e.target.value)} 
+                  className="pl-10 h-10 text-sm"
+                />
+              </div>
+
+              <HistoryTab 
+                shipments={filteredShipments} 
+                loading={loadingShipments} 
+                onReload={loadShipments} 
+              />
+            </div>
           </DialogContent>
         </Dialog>
 
