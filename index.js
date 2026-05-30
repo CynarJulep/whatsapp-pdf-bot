@@ -162,6 +162,18 @@ async function useSupabaseAuthState(supabase, sessionId) {
  */
 async function connectToWhatsApp() {
     try {
+        // Cleanup existing socket if any to prevent duplicate instances
+        if (sock) {
+            console.log('[WhatsApp] Cleaning up existing socket before reconnecting...');
+            try {
+                sock.ev.removeAllListeners();
+                sock.end();
+            } catch (err) {
+                console.error('[WhatsApp] Error ending previous socket:', err);
+            }
+            sock = null;
+        }
+
         console.log(`[WhatsApp] Connecting session: ${SESSION_ID}...`);
         const { state, saveCreds } = await useSupabaseAuthState(supabase, SESSION_ID);
 
@@ -169,7 +181,7 @@ async function connectToWhatsApp() {
             auth: state,
             printQRInTerminal: false, // We print it manually to have full control
             logger: pino({ level: 'info' }),
-            browser: ['WhatsApp Business - Pai', 'Chrome', '1.0.0']
+            browser: ['Windows', 'Chrome', '122.0.0.0']
         });
 
         // Sync credentials whenever update is fired
@@ -190,13 +202,18 @@ async function connectToWhatsApp() {
                 isConnected = false;
                 qrCode = null;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                
+                // If it is a conflict (session replaced), do not auto-reconnect to avoid infinite loop
+                const isConflict = statusCode === 440 || lastDisconnect?.error?.message?.includes('conflict');
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !isConflict;
                 
                 console.warn(`[WhatsApp] Connection closed. Status Code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
 
                 if (shouldReconnect) {
                     // Reconnect automatically immediately or with a small delay
                     setTimeout(connectToWhatsApp, 5000);
+                } else if (isConflict) {
+                    console.warn('[WhatsApp] Session replaced by another active instance (Render/Prod). Standing down locally to prevent conflict loops.');
                 } else {
                     console.error('[WhatsApp] Logged out. Deleting credentials in Supabase to start fresh.');
                     await supabase.from('baileys_creds').delete().eq('session_id', SESSION_ID);
@@ -253,9 +270,8 @@ app.get('/status', (req, res) => {
     });
 });
 
-// Endpoint to send PDF files
 app.post('/send-pdf', async (req, res) => {
-    const { fileName, phoneNumber } = req.body;
+    const { fileName, phoneNumber, caption } = req.body;
 
     // 1. Validation
     if (!fileName || !phoneNumber) {
@@ -313,7 +329,7 @@ app.post('/send-pdf', async (req, res) => {
             document: fileBuffer,
             mimetype: 'application/pdf',
             fileName: fileName,
-            caption: 'Adjunto el documento solicitado.' // Optional message
+            caption: caption || 'Adjunto el documento solicitado.'
         });
 
         console.log(`[Webhook] PDF successfully sent. Message ID: ${response.key.id}`);

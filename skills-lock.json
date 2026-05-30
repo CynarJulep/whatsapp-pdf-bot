@@ -79,6 +79,12 @@
       "skillPath": "skills/huggingface-zerogpu/SKILL.md",
       "computedHash": "94f89502a679c5bb899617014cd1d801771941d2cc5824d6bdcccb892047356f"
     },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "d7a07155448a6ac09ec3078b0de05f093e0e7e0b7fa92d451f3883d233386050"
+    },
     "supabase": {
       "source": "supabase/agent-skills",
       "sourceType": "github",
