@@ -282,12 +282,21 @@ function PreviewAndPick({ file, contacts, onBack, onSend, sending, progress, pro
 Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
       setMessageText(defaultMsg);
 
-      if (info.areaDestino) {
-        const normalized = info.areaDestino.toLowerCase().trim();
-        const match = activeContacts.find(c =>
-          c.area_destino && c.area_destino.toLowerCase().trim() === normalized
-        );
-        if (match) setSelected(new Set([match.id]));
+      if (info.areaDestino || info.subtipo) {
+        const normalizedArea = info.areaDestino ? info.areaDestino.toLowerCase().trim() : null;
+        const normalizedSubtipo = info.subtipo ? info.subtipo.toLowerCase().trim() : null;
+        
+        const matches = activeContacts.filter(c => {
+          const areaMatch = normalizedArea && c.area_destino && c.area_destino.toLowerCase().trim() === normalizedArea;
+          const subtipoMatch = normalizedSubtipo && c.subtypes && c.subtypes.some(s => s.toLowerCase().trim() === normalizedSubtipo);
+          return areaMatch || subtipoMatch;
+        });
+        
+        if (matches.length > 0) {
+          const newSelected = new Set();
+          matches.slice(0, MAX_RECIPIENTS).forEach(m => newSelected.add(m.id));
+          setSelected(newSelected);
+        }
       }
     });
   }, [file]);
@@ -358,10 +367,10 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
       </div>
 
       {/* Split layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[750px]">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
         {/* LEFT: PDF Preview */}
-        <div className="rounded-2xl overflow-hidden border bg-muted flex flex-col">
+        <div className="rounded-2xl overflow-hidden border bg-muted flex flex-col shadow-sm">
           <div className="flex items-center gap-2.5 px-4 py-2.5 bg-card border-b">
             <div className="w-7 h-7 rounded-lg bg-red-100 dark:bg-red-950 flex items-center justify-center flex-shrink-0">
               <FileText className="w-4 h-4 text-red-500" />
@@ -376,12 +385,12 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
           </div>
           {pdfUrl ? (
             <embed
-              src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`}
+              src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH&scrollbar=0`}
               type="application/pdf"
-              className="flex-1 w-full min-h-[700px]"
+              className="w-full aspect-[1/1.4142] rounded-b-2xl border-0 bg-background"
             />
           ) : (
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 flex items-center justify-center min-h-[400px]">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           )}
@@ -530,16 +539,17 @@ function ContactsTab({ contacts, onReload, showToast }) {
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
-  const [form, setForm] = useState({ name: '', phone: '', description: '', area_destino: '' });
-  const [editForm, setEditForm] = useState({ name: '', phone_number: '', description: '', area_destino: '' });
+  const [form, setForm] = useState({ name: '', phone: '', description: '', area_destino: '', subtypes: '' });
+  const [editForm, setEditForm] = useState({ name: '', phone_number: '', description: '', area_destino: '', subtypes: '' });
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState(new Set());
 
-  const filtered = search.trim() === '' ? [] : contacts.filter(c =>
+  const filtered = search.trim() === '' ? contacts : contacts.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     (c.description || '').toLowerCase().includes(search.toLowerCase()) ||
     (c.area_destino || '').toLowerCase().includes(search.toLowerCase()) ||
-    c.phone_number.includes(search)
+    (c.phone_number || '').includes(search) ||
+    (c.subtypes || []).some(s => s.toLowerCase().includes(search.toLowerCase()))
   );
 
   const allActiveIds = contacts.filter(c => c.is_active).map(c => c.id);
@@ -552,16 +562,22 @@ function ContactsTab({ contacts, onReload, showToast }) {
       showToast('Completá nombre y teléfono (mín. 8 dígitos)', 'error'); return;
     }
     setSaving(true);
+    
+    const parsedSubtypes = form.subtypes
+      ? form.subtypes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+      : [];
+
     try {
       const { error } = await supabase.from('contacts').insert([{
         name: form.name.trim(), phone_number: normalizePhone(form.phone),
         description: form.description.trim() || null,
         area_destino: form.area_destino.trim() || null,
+        subtypes: parsedSubtypes,
         is_active: true,
       }]);
       if (error) throw error;
       showToast('Contacto agregado ✓');
-      setForm({ name: '', phone: '', description: '', area_destino: '' });
+      setForm({ name: '', phone: '', description: '', area_destino: '', subtypes: '' });
       setAddOpen(false); onReload();
     } catch (err) {
       showToast(err.message.includes('23505') ? 'Ese número ya existe' : err.message, 'error');
@@ -571,11 +587,17 @@ function ContactsTab({ contacts, onReload, showToast }) {
   const handleSaveEdit = async () => {
     if (!editForm.name.trim()) { showToast('El nombre es obligatorio', 'error'); return; }
     setSaving(true);
+
+    const parsedSubtypes = editForm.subtypes
+      ? editForm.subtypes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+      : [];
+
     try {
       const { error } = await supabase.from('contacts').update({
         name: editForm.name.trim(), phone_number: normalizePhone(editForm.phone_number),
         description: editForm.description?.trim() || null,
         area_destino: editForm.area_destino?.trim() || null,
+        subtypes: parsedSubtypes
       }).eq('id', editId);
       if (error) throw error;
       showToast('Cambios guardados ✓'); setEditId(null); onReload();
@@ -597,7 +619,13 @@ function ContactsTab({ contacts, onReload, showToast }) {
 
   const startEdit = (c) => {
     setEditId(c.id);
-    setEditForm({ name: c.name, phone_number: c.phone_number, description: c.description || '', area_destino: c.area_destino || '' });
+    setEditForm({ 
+      name: c.name, 
+      phone_number: c.phone_number, 
+      description: c.description || '', 
+      area_destino: c.area_destino || '',
+      subtypes: (c.subtypes || []).join(', ')
+    });
   };
 
   return (
@@ -638,32 +666,57 @@ function ContactsTab({ contacts, onReload, showToast }) {
                 </Avatar>
 
                 {isEditing ? (
-                  <div className="flex-1 grid grid-cols-2 gap-2">
-                    <Input value={editForm.name} onChange={(e) => setEditForm(p => ({ ...p, name: e.target.value }))}
-                      placeholder="Nombre" className="h-8 text-sm col-span-2" />
-                    <Input value={editForm.phone_number} onChange={(e) => setEditForm(p => ({ ...p, phone_number: e.target.value }))}
-                      placeholder="Teléfono" className="h-8 text-sm font-mono" />
-                    <Input value={editForm.area_destino} onChange={(e) => setEditForm(p => ({ ...p, area_destino: e.target.value }))}
-                      placeholder="Área destino (ej: ATENCIÓN CIUDADANA)" className="h-8 text-sm" />
-                    <Input value={editForm.description} onChange={(e) => setEditForm(p => ({ ...p, description: e.target.value }))}
-                      placeholder="Descripción / apodo" className="h-8 text-sm col-span-2" />
+                  <div className="flex-1 grid grid-cols-2 gap-2 bg-muted/30 p-3 rounded-lg border border-primary/10">
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-[10px] font-semibold text-muted-foreground">Nombre</Label>
+                      <Input value={editForm.name} onChange={(e) => setEditForm(p => ({ ...p, name: e.target.value }))}
+                        placeholder="Nombre" className="h-8 text-sm" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] font-semibold text-muted-foreground">Teléfono</Label>
+                      <Input value={editForm.phone_number} onChange={(e) => setEditForm(p => ({ ...p, phone_number: e.target.value }))}
+                        placeholder="Teléfono" className="h-8 text-sm font-mono" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] font-semibold text-muted-foreground">Área destino</Label>
+                      <Input value={editForm.area_destino} onChange={(e) => setEditForm(p => ({ ...p, area_destino: e.target.value }))}
+                        placeholder="Área destino (ej: ATENCIÓN CIUDADANA)" className="h-8 text-sm" />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-[10px] font-semibold text-muted-foreground">Subtipos predeterminados (separados por coma)</Label>
+                      <Input value={editForm.subtypes} onChange={(e) => setEditForm(p => ({ ...p, subtypes: e.target.value }))}
+                        placeholder="Ej: BACHES, ALUMBRADO PÚBLICO, QUEJAS" className="h-8 text-xs font-mono uppercase" />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-[10px] font-semibold text-muted-foreground">Descripción / cargo</Label>
+                      <Input value={editForm.description} onChange={(e) => setEditForm(p => ({ ...p, description: e.target.value }))}
+                        placeholder="Descripción / apodo" className="h-8 text-sm" />
+                    </div>
                   </div>
                 ) : (
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-foreground truncate">{c.name}</p>
-                      {!c.is_active && <Badge variant="outline" className="text-[10px] h-4 py-0">Inactivo</Badge>}
+                      <p className="text-sm font-bold text-foreground truncate">{c.name}</p>
+                      {!c.is_active && <Badge variant="outline" className="text-[9px] h-4 py-0 bg-muted/50">Inactivo</Badge>}
                     </div>
-                    {c.description && <p className="text-xs text-muted-foreground truncate mt-0.5">{c.description}</p>}
-                    {c.area_destino && (
-                      <p className="text-[10px] text-primary/70 truncate mt-0.5 flex items-center gap-1">
-                        <MapPin className="w-2.5 h-2.5" />{c.area_destino}
-                      </p>
-                    )}
+                    {c.description && <p className="text-xs text-muted-foreground/80 mt-0.5 font-medium">{c.description}</p>}
+                    
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      {c.area_destino && (
+                        <Badge variant="secondary" className="text-[9px] font-black flex items-center gap-0.5 px-2 py-0.5 bg-primary/5 text-primary border border-primary/10">
+                          <MapPin className="w-2.5 h-2.5" /> {c.area_destino.toUpperCase()}
+                        </Badge>
+                      )}
+                      {c.subtypes && c.subtypes.map(sub => (
+                        <Badge key={sub} variant="outline" className="text-[9px] font-bold px-2 py-0.5 bg-secondary/40 border-secondary-foreground/10 text-secondary-foreground/80">
+                          {sub}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
                 )}
 
-                <div className="flex items-center gap-1 flex-shrink-0">
+                <div className="flex items-center gap-1.5 flex-shrink-0">
                   {isEditing ? (
                     <>
                       <Button variant="ghost" size="icon" onClick={handleSaveEdit} disabled={saving}
@@ -686,11 +739,11 @@ function ContactsTab({ contacts, onReload, showToast }) {
                         </Tooltip>
                       </TooltipProvider>
                       <Button variant="ghost" size="icon" onClick={() => startEdit(c)}
-                        className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-all">
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground hover:bg-accent transition-all">
                         <Edit className="w-4 h-4" />
                       </Button>
                       <Button variant="ghost" size="icon" onClick={() => setDeleteId(c.id)}
-                        className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all">
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all">
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </>
@@ -704,36 +757,44 @@ function ContactsTab({ contacts, onReload, showToast }) {
 
       {/* Add Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold">Nuevo Contacto</DialogTitle>
-            <DialogDescription>Completá los datos del destinatario</DialogDescription>
+            <DialogTitle className="text-xl font-black">Nuevo Contacto de Derivación</DialogTitle>
+            <DialogDescription className="text-xs">Completá los datos del destinatario para el protocolo</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleCreate} className="space-y-3 mt-2">
+          <form onSubmit={handleCreate} className="space-y-4 mt-2">
             <div className="space-y-1.5">
-              <Label htmlFor="add-name" className="text-sm font-medium">Nombre *</Label>
+              <Label htmlFor="add-name" className="text-xs font-semibold text-muted-foreground">Nombre / Identificación *</Label>
               <Input id="add-name" placeholder="Ej. Mesa de Entradas"
-                value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))} />
+                value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))} className="h-10" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="add-phone" className="text-sm font-medium">Teléfono *</Label>
-              <Input id="add-phone" placeholder="Ej. 549342555555" className="font-mono"
+              <Label htmlFor="add-phone" className="text-xs font-semibold text-muted-foreground">Teléfono de WhatsApp *</Label>
+              <Input id="add-phone" placeholder="Ej. 549342555555" className="font-mono h-10"
                 value={form.phone} onChange={(e) => setForm(p => ({ ...p, phone: e.target.value }))} />
-              <p className="text-xs text-muted-foreground">Con código de país: 549 + área + número</p>
+              <p className="text-[10px] text-muted-foreground">Con código de país e internacional: 549 + código de área sin el 15 + número</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="add-area" className="text-sm font-medium flex items-center gap-1.5">
+              <Label htmlFor="add-area" className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-primary" />
-                Área destino <span className="text-muted-foreground font-normal">(para detección automática)</span>
+                Área de derivación en PDF <span className="text-muted-foreground font-normal">(para detección automática)</span>
               </Label>
               <Input id="add-area" placeholder="Ej. ATENCIÓN CIUDADANA"
-                value={form.area_destino} onChange={(e) => setForm(p => ({ ...p, area_destino: e.target.value }))} />
-              <p className="text-xs text-muted-foreground">Debe coincidir exactamente con el campo "Area destino" del PDF</p>
+                value={form.area_destino} onChange={(e) => setForm(p => ({ ...p, area_destino: e.target.value }))} className="h-10" />
+              <p className="text-[10px] text-muted-foreground">Debe coincidir exactamente con el campo "Area destino" del PDF</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="add-desc" className="text-sm font-medium">Descripción <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+              <Label htmlFor="add-subtypes" className="text-xs font-semibold text-muted-foreground">
+                Subtipos asociados <span className="text-muted-foreground font-normal">(para autoselección)</span>
+              </Label>
+              <Input id="add-subtypes" placeholder="Ej: BACHES, ALUMBRADO PÚBLICO, QUEJAS"
+                value={form.subtypes} onChange={(e) => setForm(p => ({ ...p, subtypes: e.target.value }))} className="h-10 font-mono text-xs uppercase" />
+              <p className="text-[10px] text-muted-foreground">Separados por coma. Se auto-seleccionará el contacto cuando el PDF coincida.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-desc" className="text-xs font-semibold text-muted-foreground">Descripción o cargo <span className="text-muted-foreground font-normal">(opcional)</span></Label>
               <Input id="add-desc" placeholder="Ej. Coordinador de Atención al Vecino"
-                value={form.description} onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))} />
+                value={form.description} onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))} className="h-10" />
             </div>
             <div className="flex gap-3 pt-2">
               <Button type="button" variant="outline" onClick={() => setAddOpen(false)} className="flex-1">Cancelar</Button>
@@ -1147,6 +1208,29 @@ export default function App() {
             }
           }
         }
+      }
+
+      // Auto-asociación de subtipos detectados para todos los contactos seleccionados
+      if (pdfInfo?.subtipo) {
+        setProgress(35);
+        setProgressText('Guardando subtipos predeterminados...');
+        setSendingDetails(prev => ({ ...prev, currentName: 'Base de Datos' }));
+        const cleanSub = pdfInfo.subtipo.trim().toUpperCase();
+        for (const contact of recipients) {
+          const currentSubtypes = contact.subtypes || [];
+          if (!currentSubtypes.includes(cleanSub)) {
+            try {
+              const updatedSubtypes = [...currentSubtypes, cleanSub];
+              await supabase.from('contacts').update({ subtypes: updatedSubtypes }).eq('id', contact.id);
+            } catch (dbErr) {
+              console.error("Error al guardar subtipo predeterminado:", dbErr);
+            }
+          }
+        }
+      }
+
+      // Recargar contactos si hubo cambios
+      if (areaDestino || pdfInfo?.subtipo) {
         await loadContacts();
       }
 
