@@ -1034,11 +1034,6 @@ export default function App() {
     finally { setLoadingContacts(false); }
   }, [showToast]);
 
-  useEffect(() => { 
-    loadContacts(); 
-    loadShipments();
-  }, [loadContacts, loadShipments]);
-
   const loadShipments = useCallback(async () => {
     setLoadingShipments(true);
     try {
@@ -1075,6 +1070,11 @@ export default function App() {
       setDisconnecting(false);
     }
   };
+
+  useEffect(() => { 
+    loadContacts(); 
+    loadShipments();
+  }, [loadContacts, loadShipments]);
 
   useEffect(() => {
     let failedCount = 0;
