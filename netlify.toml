@@ -1,11 +1,38 @@
+# ==============================================================================
+# CONFIGURACIÓN DE DESPLIEGUE EN NETLIFY
+# ==============================================================================
+# Este archivo configura los procesos de compilación, ruteo y optimización de
+# metadatos para el Protocolo de Acción Inmediata (PAI).
+#
+# Nota sobre vistas previas (WhatsApp, Telegram, etc.):
+# Las vistas previas ricas en aplicaciones de mensajería se gestionan a través
+# de las etiquetas HTML <meta> (Open Graph) ubicadas en 'frontend/index.html'.
+
 [build]
+  # Comando de instalación y compilación del frontend de React (Vite)
   command = "npm install --prefix frontend && npm run build --prefix frontend"
+  # Directorio final compilado para publicar en producción
   publish = "frontend/dist"
 
-# Proxy /api/* → Render backend (mirrors the Vite dev server proxy)
-# This allows the same relative /api/... fetch calls to work in both dev and prod.
+# Redirección de API (Proxy inverso)
+# Redirige llamadas relativas /api/* hacia el backend en Render para evitar
+# problemas de CORS y mantener coherencia entre desarrollo y producción.
 [[redirects]]
   from = "/api/*"
   to = "https://whatsapp-pdf-bot-backend.onrender.com/:splat"
   status = 200
   force = true
+
+# Cabeceras personalizadas para optimización y cache
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Cabeceras de seguridad básicas
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    
+    # Políticas de caché por defecto para single-page app (SPA)
+    # Permite al navegador validar el estado de los archivos en cada carga
+    Cache-Control = "public, max-age=0, must-revalidate"

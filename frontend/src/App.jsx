@@ -6,7 +6,8 @@ import {
   AlertCircle, RefreshCw, X, Trash2, Edit, Save, UserPlus,
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
   Check, Plus, Loader2, Zap, MapPin, ArrowRight,
-  History, Clock, ChevronDown, ChevronUp, HelpCircle, BookOpen
+  History, Clock, ChevronDown, ChevronUp, HelpCircle, BookOpen,
+  Copy
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -301,9 +302,16 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
         }}
         className={`dropzone-idle w-full max-w-4xl border-2 border-dashed rounded-3xl cursor-pointer
           flex flex-col items-center justify-center gap-6 py-16 px-8
-          transition-all duration-300 select-none
+          transition-all duration-300 select-none relative overflow-hidden
           ${content.className}`}
       >
+        {isInteractable && (
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none z-0">
+            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-1" />
+            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-2" />
+            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-3" />
+          </div>
+        )}
         <input 
           ref={inputRef} 
           type="file" 
@@ -312,17 +320,14 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
           disabled={!isInteractable}
           onChange={(e) => e.target.files?.[0] && validate(e.target.files[0])} 
         />
-        <div className={`w-20 h-20 rounded-3xl flex items-center justify-center transition-all duration-300 shadow-sm
-          ${!isInteractable && !checking && !connecting
-            ? 'bg-red-100 dark:bg-red-950/30 text-red-500'
-            : active 
-              ? 'bg-primary text-primary-foreground scale-110' 
-              : 'bg-muted text-muted-foreground'
-          }`}
+        <div className={`relative z-10 transition-all duration-300
+          ${isInteractable ? 'animate-float text-primary' : 'text-muted-foreground'}
+          ${!isInteractable && !checking && !connecting ? 'text-red-500 scale-105' : ''}
+          ${active ? 'scale-115 text-primary' : ''}`}
         >
-          {content.icon}
+          {React.cloneElement(content.icon, { className: "w-16 h-16 transition-all duration-300" })}
         </div>
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-2 relative z-10">
           <p className={`text-xl sm:text-2xl font-bold ${
             !isInteractable && !checking && !connecting ? 'text-red-600 dark:text-red-400 font-black' : 'text-foreground'
           }`}>
@@ -351,13 +356,15 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
 }
 
 // ── Step 1: Preview + Contact Picker (split layout) ────────────────────────────
-function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch }) {
+function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
   const [extracting, setExtracting] = useState(true);
   const [pdfInfo, setPdfInfo] = useState({ areaDestino: null, solicitudNro: null, tipo: null, subtipo: null, ubicacion: null, descripcion: null, fecha: null });
   const [messageText, setMessageText] = useState('');
   const [isEditingMessage, setIsEditingMessage] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   const activeContacts = contacts.filter(c => c.is_active);
 
@@ -368,7 +375,13 @@ function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog
       setPdfInfo(info);
       setExtracting(false);
 
-      const defaultMsg = `Atención Ciudadana le hace llegar el siguiente reclamo:
+      const isNonSac = !info.solicitudNro && !info.subtipo && !info.ubicacion && !info.areaDestino;
+
+      let defaultMsg = '';
+      if (isNonSac) {
+        defaultMsg = "Atención Ciudadana le hace llegar el documento adjunto.";
+      } else {
+        defaultMsg = `Atención Ciudadana le hace llegar el siguiente reclamo:
 *Solicitud Nro:* ${info.solicitudNro || 'No especificado'}
 
 *Subtipo:* ${info.subtipo || 'No especificado'}
@@ -378,26 +391,28 @@ function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog
 *Descripción:* ${info.descripcion || 'No especificado'}
 
 Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
+      }
       setMessageText(defaultMsg);
 
-      if (info.areaDestino || info.subtipo) {
-        const normalizedArea = info.areaDestino ? info.areaDestino.toLowerCase().trim() : null;
-        const normalizedSubtipo = info.subtipo ? info.subtipo.toLowerCase().trim() : null;
-        
-        const matches = activeContacts.filter(c => {
-          const areaMatch = normalizedArea && c.area_destino && c.area_destino.toLowerCase().trim() === normalizedArea;
-          const subtipoMatch = normalizedSubtipo && c.subtypes && c.subtypes.some(s => s.toLowerCase().trim() === normalizedSubtipo);
-          return areaMatch || subtipoMatch;
-        });
-        
-        if (matches.length > 0) {
-          const newSelected = new Set();
-          matches.slice(0, MAX_RECIPIENTS).forEach(m => newSelected.add(m.id));
-          setSelected(newSelected);
+      // Strict Preselection
+      const newSelected = new Set();
+      if (info.subtipo && subtypesCatalog && subtypesCatalog.length > 0) {
+        const cleanSub = info.subtipo.trim().toLowerCase();
+        const matchedItem = subtypesCatalog.find(
+          item => item.subtipo.trim().toLowerCase() === cleanSub
+        );
+        if (matchedItem && matchedItem.derivar) {
+          const match = activeContacts.find(c => 
+            c.subtypes && c.subtypes.some(s => s.trim().toLowerCase() === cleanSub)
+          );
+          if (match) {
+            newSelected.add(match.id);
+          }
         }
       }
+      setSelected(newSelected);
     });
-  }, [file]);
+  }, [file, subtypesCatalog, contacts]);
 
   const matchedCatalogItem = useMemo(() => {
     if (!pdfInfo.subtipo || !subtypesCatalog || subtypesCatalog.length === 0) return null;
@@ -411,23 +426,30 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
   useEffect(() => {
     if (extracting) {
       if (onDerivationChange) onDerivationChange(null);
-    } else if (matchedCatalogItem) {
-      if (onDerivationChange) onDerivationChange(matchedCatalogItem.derivar ? 'derivar' : 'no-derivar');
     } else {
-      if (onDerivationChange) onDerivationChange('no-catalogado');
+      const isNonSac = !pdfInfo.solicitudNro && !pdfInfo.subtipo && !pdfInfo.ubicacion && !pdfInfo.areaDestino;
+      if (isNonSac) {
+        if (onDerivationChange) onDerivationChange('no-sac');
+      } else if (matchedCatalogItem) {
+        if (onDerivationChange) onDerivationChange(matchedCatalogItem.derivar ? 'derivar' : 'no-derivar');
+      } else {
+        if (onDerivationChange) onDerivationChange('no-catalogado');
+      }
     }
-  }, [matchedCatalogItem, extracting, onDerivationChange]);
+  }, [matchedCatalogItem, pdfInfo, extracting, onDerivationChange]);
 
-  const filtered = activeContacts.filter(c => {
-    const isAutoDetected = pdfInfo.areaDestino &&
-      c.area_destino?.toLowerCase().trim() === pdfInfo.areaDestino.toLowerCase().trim();
-    if (search.trim() === '') {
-      return isAutoDetected;
+  const filtered = useMemo(() => {
+    const term = search.toLowerCase().trim();
+    if (term === '') {
+      return activeContacts;
     }
-    return c.name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.description || '').toLowerCase().includes(search.toLowerCase()) ||
-      (c.area_destino || '').toLowerCase().includes(search.toLowerCase());
-  });
+    return activeContacts.filter(c => 
+      c.name.toLowerCase().includes(term) ||
+      (c.description || '').toLowerCase().includes(term) ||
+      (c.area_destino || '').toLowerCase().includes(term) ||
+      (c.subtypes || []).some(s => s.toLowerCase().includes(term))
+    );
+  }, [activeContacts, search]);
 
   const toggle = (id) => {
     setSelected(prev => {
@@ -447,6 +469,17 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     onSend(recipients, pdfInfo, messageText);
   };
 
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (sending) return;
@@ -455,12 +488,28 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
         handleSend();
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        onBack();
+        if (isOpen) {
+          setIsOpen(false);
+        } else {
+          onBack();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selected, sending, onBack]);
+  }, [selected, sending, onBack, isOpen]);
+
+  const handleCopyMessage = () => {
+    navigator.clipboard.writeText(messageText).then(() => {
+      if (showToast) {
+        showToast("Mensaje copiado al portapapeles ✓");
+      }
+    }).catch(() => {
+      if (showToast) {
+        showToast("Error al copiar el mensaje", "error");
+      }
+    });
+  };
 
   const selectedRecipients = contacts.filter(c => selected.has(c.id));
 
@@ -473,34 +522,59 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
             <Loader2 className="w-5 h-5 animate-spin text-primary" /> Analizando documento e identificando subtipos...
           </div>
         ) : (
-          <div className={`py-3.5 px-6 rounded-2xl text-center space-y-0.5 border transition-all duration-300 msf-title-banner ${
-            matchedCatalogItem
-              ? matchedCatalogItem.derivar
-                ? 'bg-emerald-500/[0.06] border-emerald-500/20 text-emerald-950 dark:text-emerald-300 dark:bg-emerald-950/20 dark:border-emerald-500/10'
-                : 'bg-rose-500/[0.06] border-rose-500/20 text-rose-950 dark:text-rose-300 dark:bg-rose-950/20 dark:border-rose-500/10'
-              : 'bg-blue-500/[0.06] border-blue-500/20 text-blue-950 dark:text-blue-300 dark:bg-blue-950/20 dark:border-blue-500/10'
-          }`}>
-            <h2 className={`text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter leading-none ${
-              matchedCatalogItem
-                ? matchedCatalogItem.derivar
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-rose-600 dark:text-rose-400'
-                : 'text-blue-600 dark:text-blue-400'
-            }`}>
-              {matchedCatalogItem
-                ? matchedCatalogItem.derivar
-                  ? 'ESTE RECLAMO SE DERIVA POR PAI'
-                  : 'ESTE RECLAMO NO SE DERIVA POR PAI'
-                : 'SUBTIPO NO CATALOGADO'}
-            </h2>
-            <p className="text-[11px] sm:text-xs font-semibold text-muted-foreground/90 max-w-xl mx-auto leading-normal">
-              {matchedCatalogItem
-                ? matchedCatalogItem.derivar
-                  ? `El subtipo ${matchedCatalogItem.subtipo} está configurado para derivación automática.`
-                  : `El subtipo ${matchedCatalogItem.subtipo} no se debe derivar por este medio. Por favor, contactá a un supervisor.`
-                : `El subtipo ${pdfInfo.subtipo || "Desconocido"} no está registrado en el catálogo. Por favor, verificá con un supervisor.`}
-            </p>
-          </div>
+          (() => {
+            const isNonSac = !pdfInfo.solicitudNro && !pdfInfo.subtipo && !pdfInfo.ubicacion && !pdfInfo.areaDestino;
+            if (isNonSac) {
+              return (
+                <div className="py-3.5 px-6 rounded-2xl text-center space-y-0.5 border border-amber-500/20 text-amber-950 dark:text-amber-300 bg-amber-500/[0.06] dark:bg-amber-950/20 msf-title-banner animate-fade-slide-up">
+                  <h2 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter leading-none text-amber-600 dark:text-amber-400 flex items-center justify-center gap-2">
+                    <AlertCircle className="w-6 h-6 shrink-0" />
+                    ARCHIVO NO ESPECÍFICO DEL SAC
+                  </h2>
+                  <p className="text-[11px] sm:text-xs font-semibold text-muted-foreground/90 max-w-xl mx-auto leading-normal">
+                    Este documento no parece contener los campos habituales de un reclamo del SAC municipal. Se aplicará la plantilla general de envío.
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <div className={`py-3.5 px-6 rounded-2xl text-center space-y-0.5 border transition-all duration-300 msf-title-banner ${
+                matchedCatalogItem
+                  ? matchedCatalogItem.derivar
+                    ? 'bg-emerald-500/[0.06] border-emerald-500/20 text-emerald-950 dark:text-emerald-300 dark:bg-emerald-950/20 dark:border-emerald-500/10'
+                    : 'bg-rose-500/[0.06] border-rose-500/20 text-rose-950 dark:text-rose-300 dark:bg-rose-950/20 dark:border-rose-500/10'
+                  : 'bg-blue-500/[0.06] border-blue-500/20 text-blue-950 dark:text-blue-300 dark:bg-blue-950/20 dark:border-blue-500/10'
+              }`}>
+                <h2 className={`text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter leading-none ${
+                  matchedCatalogItem
+                    ? matchedCatalogItem.derivar
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                    : 'text-blue-600 dark:text-blue-400'
+                }`}>
+                  {matchedCatalogItem
+                    ? matchedCatalogItem.derivar
+                      ? 'ESTE RECLAMO SE DERIVA POR PAI'
+                      : 'ESTE RECLAMO NO SE DERIVA POR PAI'
+                    : 'SUBTIPO NO CATALOGADO'}
+                </h2>
+                <p className="text-[11px] sm:text-xs font-semibold text-muted-foreground/90 max-w-xl mx-auto leading-normal">
+                  {matchedCatalogItem
+                    ? matchedCatalogItem.derivar
+                      ? `El subtipo ${matchedCatalogItem.subtipo} está configurado para derivación automática.`
+                      : `El subtipo ${matchedCatalogItem.subtipo} no se debe derivar por este medio. Por favor, contactá a un supervisor.`
+                    : `El subtipo ${pdfInfo.subtipo || "Desconocido"} no está registrado en el catálogo. Por favor, verificá con un supervisor.`}
+                </p>
+                {matchedCatalogItem && matchedCatalogItem.derivar && matchedCatalogItem.comentarios && (
+                  <div className="mt-1.5 pt-1.5 border-t border-emerald-500/10 text-center max-w-3xl mx-auto">
+                    <p className="text-xs sm:text-sm font-bold leading-normal text-emerald-950 dark:text-emerald-200">
+                      {matchedCatalogItem.comentarios}
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })()
         )}
       </div>
 
@@ -542,78 +616,83 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
             )}
           </div>
 
-          {/* Search Box */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Buscar destinatario por nombre, área o subtipo..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)} 
-              className="pl-10 h-10 text-sm" 
-            />
-          </div>
 
-          {/* Contacts list ScrollArea (placed right under Search) */}
-          <ScrollArea className="h-[220px] rounded-2xl border bg-card/60 dark:bg-card/20 shadow-inner contacts-scroll-area">
-            <div className="p-2 space-y-1">
-              {filtered.length === 0 ? (
-                <div className="py-12 text-center text-muted-foreground text-sm">
-                  {search.trim() === '' ? 'Escribí en el buscador para encontrar destinatarios...' : 'Sin destinatarios que coincidan'}
-                </div>
-              ) : filtered.map(c => {
-                const isSelected = selected.has(c.id);
-                const isAutoDetected = pdfInfo.areaDestino &&
-                  c.area_destino?.toLowerCase().trim() === pdfInfo.areaDestino.toLowerCase().trim();
-                const isDisabled = !isSelected && selected.size >= MAX_RECIPIENTS;
-
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => !isDisabled && toggle(c.id)}
-                    className={`contact-card flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200
-                      ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
-                      ${isSelected
-                        ? 'bg-primary/10 border border-primary/25'
-                        : isAutoDetected
-                          ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800'
-                          : 'hover:bg-muted/60 border border-transparent'
-                      }`}
-                  >
-                    <Checkbox checked={isSelected} disabled={isDisabled}
-                      onCheckedChange={() => !isDisabled && toggle(c.id)}
-                      onClick={(e) => e.stopPropagation()} className="flex-shrink-0" />
-                    <Avatar className="flex-shrink-0 w-9 h-9">
-                      <AvatarFallback className={`text-xs font-bold
-                        ${isSelected ? 'bg-primary text-primary-foreground' :
-                          isAutoDetected ? 'bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200' :
-                          'bg-muted text-muted-foreground'}`}>
-                        {initials(c.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-semibold text-foreground truncate">{c.name}</p>
-                        {isAutoDetected && (
-                          <Badge className="text-[9px] h-4 px-1.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 border-0">
-                            <Zap className="w-2.5 h-2.5 mr-0.5" />Auto
-                          </Badge>
-                        )}
-                      </div>
-                      {c.description && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">{c.description}</p>
-                      )}
-                      {c.area_destino && (
-                        <p className="text-[10px] text-primary/70 truncate mt-0.5 flex items-center gap-1">
-                          <MapPin className="w-2.5 h-2.5" />{c.area_destino}
-                        </p>
-                      )}
-                    </div>
-                    {isSelected && <Check className="w-4 h-4 text-primary flex-shrink-0" />}
-                  </div>
-                );
-              })}
+          {/* Search Box & Floating Dropdown */}
+          <div className="relative" ref={dropdownRef}>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input 
+                placeholder="Buscar destinatario por nombre, área o subtipo..." 
+                value={search}
+                onChange={(e) => setSearch(e.target.value)} 
+                onFocus={() => setIsOpen(true)}
+                className="pl-10 h-10 text-sm" 
+              />
             </div>
-          </ScrollArea>
+
+            {isOpen && (
+              <div className="absolute top-full left-0 right-0 z-50 mt-1.5 bg-popover border border-border shadow-2xl rounded-2xl max-h-[220px] overflow-y-auto animate-fade-slide-down">
+                <div className="p-2 space-y-1">
+                  {filtered.length === 0 ? (
+                    <div className="py-8 text-center text-muted-foreground text-xs">
+                      Sin destinatarios que coincidan
+                    </div>
+                  ) : filtered.map(c => {
+                    const isSelected = selected.has(c.id);
+                    const isAutoDetected = pdfInfo.subtipo &&
+                      c.subtypes && c.subtypes.some(s => s.trim().toLowerCase() === pdfInfo.subtipo.trim().toLowerCase());
+                    const isDisabled = !isSelected && selected.size >= MAX_RECIPIENTS;
+
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => !isDisabled && toggle(c.id)}
+                        className={`contact-card flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs
+                          ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
+                          ${isSelected
+                            ? 'bg-primary/10 border border-primary/25'
+                            : isAutoDetected
+                              ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800'
+                              : 'hover:bg-muted/60 border border-transparent'
+                          }`}
+                      >
+                        <Checkbox checked={isSelected} disabled={isDisabled}
+                          onCheckedChange={() => !isDisabled && toggle(c.id)}
+                          onClick={(e) => e.stopPropagation()} className="flex-shrink-0" />
+                        <Avatar className="flex-shrink-0 w-8 h-8">
+                          <AvatarFallback className={`text-[10px] font-bold
+                            ${isSelected ? 'bg-primary text-primary-foreground' :
+                              isAutoDetected ? 'bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200' :
+                              'bg-muted text-muted-foreground'}`}>
+                            {initials(c.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-semibold text-foreground truncate">{c.name}</p>
+                            {isAutoDetected && (
+                              <Badge className="text-[8px] h-3.5 px-1 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 border-0">
+                                <Zap className="w-2 h-2 mr-0.5" />Auto
+                              </Badge>
+                            )}
+                          </div>
+                          {c.description && (
+                            <p className="text-[10px] text-muted-foreground truncate mt-0.5">{c.description}</p>
+                          )}
+                          {c.area_destino && (
+                            <p className="text-[9px] text-primary/70 truncate mt-0.5 flex items-center gap-1">
+                              <MapPin className="w-2 h-2" />{c.area_destino}
+                            </p>
+                          )}
+                        </div>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Message Preview / Editor (placed under the contacts list) */}
           <div className="rounded-xl border border-primary/10 bg-primary/[0.01] dark:bg-primary/[0.02] p-4 space-y-2.5 relative shadow-sm hover:shadow transition-all duration-300 message-preview-container">
@@ -621,12 +700,21 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
               <span className="text-xs font-bold text-primary dark:text-primary-foreground uppercase tracking-wider">
                 Mensaje de WhatsApp
               </span>
-              <Button
-                variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onClick={() => setIsEditingMessage(!isEditingMessage)}
-              >
-                {isEditingMessage ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Edit className="w-3.5 h-3.5" />}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={handleCopyMessage}
+                  title="Copiar mensaje"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsEditingMessage(!isEditingMessage)}
+                >
+                  {isEditingMessage ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Edit className="w-3.5 h-3.5" />}
+                </Button>
+              </div>
             </div>
             {isEditingMessage ? (
               <textarea
@@ -1081,32 +1169,33 @@ function StatusTab({ botStatus, contacts, onDisconnect, disconnecting }) {
 
 function HistoryItem({ item }) {
   const [expanded, setExpanded] = useState(false);
+  const elementRef = useRef(null);
   const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
   const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
-
   const isSuccess = item.status === 'success';
 
+  useEffect(() => {
+    if (expanded && elementRef.current) {
+      const t = setTimeout(() => {
+        elementRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [expanded]);
+
   return (
-    <div className={`border transition-all duration-200 text-sm font-medium ${
-      isSuccess
-        ? 'border-emerald-500/15 dark:border-emerald-500/10 bg-emerald-500/[0.03] dark:bg-emerald-950/5 hover:bg-emerald-500/[0.06] dark:hover:bg-emerald-950/15'
-        : 'border-rose-500/15 dark:border-rose-500/10 bg-rose-500/[0.03] dark:bg-rose-950/5 hover:bg-rose-500/[0.06] dark:hover:bg-rose-950/15'
-    }`}>
+    <div 
+      ref={elementRef}
+      className={`border transition-all duration-200 text-sm font-medium cursor-pointer overflow-hidden ${
+        isSuccess
+          ? 'border-emerald-500/15 dark:border-emerald-500/10 bg-emerald-500/[0.03] dark:bg-emerald-950/5 hover:bg-emerald-500/[0.06] dark:hover:bg-emerald-950/15'
+          : 'border-rose-500/15 dark:border-rose-500/10 bg-rose-500/[0.03] dark:bg-rose-950/5 hover:bg-rose-500/[0.06] dark:hover:bg-rose-950/15'
+      }`}
+      onClick={() => setExpanded(!expanded)}
+    >
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
-          {isSuccess ? (
-            <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-          )}
-
-          <span className="font-bold text-foreground">
-            Sol. Nro {item.solicitud_nro || 'S/N'}
-          </span>
-
-          <span className="text-muted-foreground">|</span>
-
-          <span className="text-foreground uppercase tracking-wide font-semibold">
+          <span className="font-bold text-foreground uppercase tracking-wide">
             {item.subtipo || 'SIN SUBTIPO'}
           </span>
 
@@ -1115,29 +1204,103 @@ function HistoryItem({ item }) {
           <span className="text-muted-foreground">
             Para: <strong className="text-foreground font-semibold">{item.contact_name}</strong>
           </span>
+
+          <span className="text-muted-foreground">|</span>
+
+          <span className="text-xs text-muted-foreground font-medium">
+            Sol. Nro {item.solicitud_nro || 'S/N'}
+          </span>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start md:self-auto">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start md:self-auto flex-shrink-0">
           <span>{dateStr} {timeStr}</span>
+          <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} />
         </div>
       </div>
 
-      {item.message_text && (
-        <div className="border-t border-border/60 bg-muted/10">
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent/20 transition-all text-left"
-          >
-            <span>{expanded ? 'Ocultar mensaje completo' : 'Ver mensaje completo'}</span>
-            {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
-          {expanded && (
-            <div className="px-4 pb-4 pt-1 text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed border-t border-border/40 bg-card">
+      <div className={`transition-all duration-300 ease-in-out border-t border-border/40 bg-card ${
+        expanded ? 'max-h-[300px] opacity-100 p-4' : 'max-h-0 opacity-0 pointer-events-none'
+      }`}>
+        {item.message_text ? (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Detalle del Mensaje Enviado</p>
+            <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/40 p-3 rounded-xl border">
               {item.message_text}
             </div>
-          )}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground italic">No hay contenido de mensaje registrado.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashboardHistoryItem({ item }) {
+  const [expanded, setExpanded] = useState(false);
+  const elementRef = useRef(null);
+  const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
+  const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+  const isSuccess = item.status === 'success';
+
+  useEffect(() => {
+    if (expanded && elementRef.current) {
+      const t = setTimeout(() => {
+        elementRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [expanded]);
+
+  return (
+    <div 
+      ref={elementRef}
+      className={`border transition-all duration-200 text-sm font-medium cursor-pointer overflow-hidden ${
+        isSuccess
+          ? 'border-emerald-500/15 dark:border-emerald-500/10 bg-emerald-500/[0.03] dark:bg-emerald-950/5 hover:bg-emerald-500/[0.06] dark:hover:bg-emerald-950/15'
+          : 'border-rose-500/15 dark:border-rose-500/10 bg-rose-500/[0.03] dark:bg-rose-950/5 hover:bg-rose-500/[0.06] dark:hover:bg-rose-950/15'
+      }`}
+      onClick={() => setExpanded(!expanded)}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
+          <span className="font-bold text-foreground uppercase tracking-wide">
+            {item.subtipo || 'SIN SUBTIPO'}
+          </span>
+
+          <span className="text-muted-foreground">|</span>
+
+          <span className="text-muted-foreground">
+            Para: <strong className="text-foreground font-semibold">{item.contact_name}</strong>
+          </span>
+
+          <span className="text-muted-foreground">|</span>
+
+          <span className="text-xs text-muted-foreground font-medium">
+            Sol. Nro {item.solicitud_nro || 'S/N'}
+          </span>
         </div>
-      )}
+
+        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start sm:self-auto flex-shrink-0">
+          <span>{dateStr} {timeStr}</span>
+          <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} />
+        </div>
+      </div>
+
+      <div className={`transition-all duration-300 ease-in-out border-t border-border/40 bg-card ${
+        expanded ? 'max-h-[300px] opacity-100 p-4' : 'max-h-0 opacity-0 pointer-events-none'
+      }`}>
+        {item.message_text ? (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Detalle del Mensaje Enviado</p>
+            <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/40 p-3 rounded-xl border">
+              {item.message_text}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground italic">No hay contenido de mensaje registrado.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -1255,6 +1418,8 @@ export default function App() {
   const [progressText, setProgressText] = useState('');
   const [sendingDetails, setSendingDetails] = useState(null);
   const autoCloseTimeoutRef = useRef(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragCounter = useRef(0);
   
   const [shipments, setShipments] = useState([]);
   const [loadingShipments, setLoadingShipments] = useState(false);
@@ -1410,6 +1575,62 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  // Window-Wide Drag and Drop handlers
+  useEffect(() => {
+    const handleDragEnter = (e) => {
+      if (!botStatus.connected) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current++;
+      if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+        setIsDraggingFile(true);
+      }
+    };
+
+    const handleDragLeave = (e) => {
+      if (!botStatus.connected) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current--;
+      if (dragCounter.current === 0) {
+        setIsDraggingFile(false);
+      }
+    };
+
+    const handleDragOver = (e) => {
+      if (!botStatus.connected) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleDrop = (e) => {
+      if (!botStatus.connected) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingFile(false);
+      dragCounter.current = 0;
+
+      const droppedFile = e.dataTransfer.files?.[0];
+      if (droppedFile && droppedFile.type === 'application/pdf' && droppedFile.size <= 52428800) {
+        setFile(droppedFile);
+        setStep(1);
+      } else if (droppedFile) {
+        showToast('Carga cancelada: Solo archivos PDF de hasta 50 MB.', 'error');
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [botStatus.connected, showToast]);
+
   const handleSend = async (recipients, pdfInfoOrArea, messageText) => {
     if (!file || recipients.length === 0) return;
     const pdfInfo = typeof pdfInfoOrArea === 'object' ? pdfInfoOrArea : null;
@@ -1512,6 +1733,7 @@ export default function App() {
     setProgress(0);
     setProgressText('');
     setSendingDetails(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
 
@@ -1522,7 +1744,9 @@ export default function App() {
           ? 'bg-gradient-to-br from-emerald-500/[0.12] via-background to-emerald-500/[0.04] dark:from-emerald-950/30 dark:via-background dark:to-emerald-950/10' 
           : derivationStatus === 'no-derivar' 
             ? 'bg-gradient-to-br from-rose-500/[0.12] via-background to-rose-500/[0.04] dark:from-rose-950/30 dark:via-background dark:to-rose-950/10' 
-            : 'bg-background'}`}>
+            : derivationStatus === 'no-sac'
+              ? 'bg-gradient-to-br from-amber-500/[0.12] via-background to-amber-500/[0.04] dark:from-amber-950/20 dark:via-background dark:to-amber-950/5'
+              : 'bg-background'}`}>
 
         {/* ── Cabecera simplificada y adaptada para Google Sites ── */}
         <div className="max-w-6xl mx-auto w-full px-4 pt-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 border-b-2 border-[#003b73] msf-header-container">
@@ -1610,9 +1834,28 @@ export default function App() {
         </div>
 
         {/* ── Main content (solo el flujo de envío de 2 pasos) ── */}
-        <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+        <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 overflow-x-hidden relative">
+          {isDraggingFile && (
+            <div className="fixed inset-0 z-[110] flex flex-col items-center justify-center bg-primary/10 dark:bg-primary/20 backdrop-blur-md animate-fade-in pointer-events-none">
+              <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+                <div className="absolute w-[80vw] aspect-square rounded-full bg-primary/5 border-2 border-primary/20 animate-radar-1" />
+                <div className="absolute w-[80vw] aspect-square rounded-full bg-primary/5 border-2 border-primary/20 animate-radar-2" />
+                <div className="absolute w-[80vw] aspect-square rounded-full bg-primary/5 border-2 border-primary/20 animate-radar-3" />
+              </div>
+              <div className="relative z-10 flex flex-col items-center gap-4 text-center max-w-md mx-4 animate-scale-in">
+                <UploadCloud className="w-20 h-20 text-primary animate-gentle-float" />
+                <h2 className="text-3xl font-black tracking-tight text-foreground uppercase">
+                  ¡Soltalo acá!
+                </h2>
+                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  Soltá el PDF del reclamo en cualquier parte
+                </p>
+              </div>
+            </div>
+          )}
+
           {step === 0 && (
-            <div className="flex flex-col items-center gap-6 w-full">
+            <div className="animate-slide-backward flex flex-col items-center gap-6 w-full">
               <DropZone 
                 onFile={(f) => { setFile(f); setStep(1); }} 
                 botStatus={botStatus}
@@ -1621,17 +1864,25 @@ export default function App() {
             </div>
           )}
           {step === 1 && file && (
-            <PreviewAndPick
-              file={file} 
-              contacts={loadingContacts ? [] : contacts}
-              subtypesCatalog={subtypesCatalog}
-              onAddSubtipoToCatalog={handleAddSubtipoToCatalog}
-              onBack={() => { setFile(null); setStep(0); setDerivationStatus(null); }}
-              onSend={handleSend} sending={sending}
-              progress={progress} progressText={progressText}
-              onDerivationChange={setDerivationStatus}
-              onCatalogSearch={(query) => { setCatalogSearch(query); setCatalogOpen(true); }}
-            />
+            <div className="animate-slide-forward w-full">
+              <PreviewAndPick
+                file={file} 
+                contacts={loadingContacts ? [] : contacts}
+                subtypesCatalog={subtypesCatalog}
+                onAddSubtipoToCatalog={handleAddSubtipoToCatalog}
+                onBack={() => {
+                  setFile(null);
+                  setStep(0);
+                  setDerivationStatus(null);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                onSend={handleSend} sending={sending}
+                progress={progress} progressText={progressText}
+                onDerivationChange={setDerivationStatus}
+                onCatalogSearch={(query) => { setCatalogSearch(query); setCatalogOpen(true); }}
+                showToast={showToast}
+              />
+            </div>
           )}
 
           {/* Mini Historial de Envíos en tiempo real */}
@@ -1652,59 +1903,44 @@ export default function App() {
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-2">
-                {shipments.slice(0, 5).map((item) => {
-                  const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
-                  const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
-                  const isSuccess = item.status === 'success';
-
-                  return (
-                    <div 
-                      key={item.id} 
-                      className={`border transition-all duration-200 text-sm font-medium animate-fade-slide-up ${
-                        isSuccess
-                          ? 'border-emerald-500/15 dark:border-emerald-500/10 bg-emerald-500/[0.03] dark:bg-emerald-950/5 hover:bg-emerald-500/[0.06] dark:hover:bg-emerald-950/15'
-                          : 'border-rose-500/15 dark:border-rose-500/10 bg-rose-500/[0.03] dark:bg-rose-950/5 hover:bg-rose-500/[0.06] dark:hover:bg-rose-950/15'
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
-                          {isSuccess ? (
-                            <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          ) : (
-                            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                          )}
-
-                          <span className="font-bold text-foreground">
-                            Sol. Nro {item.solicitud_nro || 'S/N'}
-                          </span>
-
-                          <span className="text-muted-foreground">|</span>
-
-                          <span className="text-foreground uppercase tracking-wide font-semibold">
-                            {item.subtipo || 'SIN SUBTIPO'}
-                          </span>
-
-                          <span className="text-muted-foreground">|</span>
-
-                          <span className="text-muted-foreground">
-                            Para: <strong className="text-foreground font-semibold">{item.contact_name}</strong>
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start sm:self-auto">
-                          <span>{dateStr} {timeStr}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {shipments.slice(0, 5).map((item) => (
+                  <DashboardHistoryItem key={item.id} item={item} />
+                ))}
               </div>
             )}
           </div>
         </main>
 
-        <footer className="border-t py-4 text-center text-xs text-muted-foreground">
-          Municipalidad de Santa Fe © {new Date().getFullYear()} · Atención Ciudadana
+        <footer className="w-full bg-gradient-to-r from-[#002144] via-[#003b73] to-[#002144] text-white py-10 px-6 mt-16 border-t border-[#003b73]/30 relative overflow-hidden">
+          {/* Línea de brillo superior */}
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
+          
+          <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
+            {/* Lado Izquierdo: Marca Municipal */}
+            <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+              <div className="transition-all duration-300 hover:scale-[1.03] flex items-center justify-center">
+                <img 
+                  src="/marca_muni/SF_Horizontal_Blanco.png" 
+                  alt="Municipalidad de Santa Fe" 
+                  className="h-12 sm:h-14 w-auto object-contain select-none" 
+                />
+              </div>
+              <div>
+                <p className="font-bold text-sm tracking-wide text-white">Municipalidad de la Ciudad de Santa Fe</p>
+                <p className="text-xs text-white/60 font-light mt-0.5">Atención Ciudadana · Protocolo de Acción Inmediata (PAI)</p>
+              </div>
+            </div>
+
+            {/* Lado Derecho: Copyright y Autoría */}
+            <div className="flex flex-col items-center md:items-end gap-2 text-center md:text-right">
+              <span className="text-xs text-white/70 font-medium">
+                © {new Date().getFullYear()} · Todos los derechos reservados
+              </span>
+              <span className="text-[11px] text-white/40 font-light tracking-widest uppercase transition-all duration-300 hover:text-white/60">
+                Desarrollado por <span className="font-semibold text-white/60 hover:text-cyan-400 transition-colors duration-200 cursor-default">Renzo</span>
+              </span>
+            </div>
+          </div>
         </footer>
 
         {/* ── Modal de Configuración Único (Contactos + Estado del Bot) ── */}
@@ -1775,7 +2011,7 @@ export default function App() {
         {/* ── Modal de Ayuda / Bienvenida ── */}
         <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
           <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto backdrop-blur-xl bg-card/95 border-border/50 shadow-2xl">
-            <div className="flex flex-col items-center px-2 py-4 space-y-6">
+            <div className="flex flex-col items-center px-2 py-4 space-y-6 help-container">
               
               <div className="text-center space-y-1.5">
                 <h2 className="text-2xl font-black tracking-tight text-foreground uppercase">

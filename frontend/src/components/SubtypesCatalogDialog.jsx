@@ -635,32 +635,14 @@ export default function SubtypesCatalogDialog({
                               </div>
 
                               {isDerivar && (
-                                <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                                <div className="space-y-1">
                                   <p className="text-[0.62rem] font-semibold tracking-wider text-muted-foreground uppercase">
                                     Contacto Asignado
                                   </p>
-                                  <Select 
-                                    value={assignedContact ? assignedContact.id.toString() : 'none'} 
-                                    onValueChange={async (newId) => {
-                                      try {
-                                        await updateContactAssignment(item.subtipo, newId);
-                                        showToast('Contacto asignado correctamente', 'success');
-                                      } catch (err) {
-                                        showToast('Error al asignar contacto: ' + err.message, 'error');
-                                      }
-                                    }}
-                                  >
-                                    <SelectTrigger className="h-7 text-xs py-0 px-2 font-bold text-primary bg-primary/5 hover:bg-primary/10 border-primary/10 hover:border-primary/20 rounded focus:ring-0 focus:ring-offset-0 w-full max-w-[170px]">
-                                      <User className="w-2.5 h-2.5 mr-1" />
-                                      <SelectValue placeholder="Sin contacto" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="none">Sin contacto</SelectItem>
-                                      {contacts.filter(c => c.is_active).map(c => (
-                                        <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <p className="text-xs font-bold text-primary truncate flex items-center gap-1">
+                                    <User className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                                    {assignedContact ? assignedContact.name : 'Sin contacto'}
+                                  </p>
                                 </div>
                               )}
 
@@ -801,30 +783,12 @@ export default function SubtypesCatalogDialog({
                             </div>
 
                             {/* Contact & Comentarios */}
-                            <div className="md:col-span-5 min-w-0 space-y-1" onClick={(e) => e.stopPropagation()}>
+                            <div className="md:col-span-5 min-w-0 space-y-1">
                               {item.derivar && (
-                                <Select 
-                                  value={assignedContact ? assignedContact.id.toString() : 'none'} 
-                                  onValueChange={async (newId) => {
-                                    try {
-                                      await updateContactAssignment(item.subtipo, newId);
-                                      showToast('Contacto asignado correctamente', 'success');
-                                    } catch (err) {
-                                      showToast('Error al asignar contacto: ' + err.message, 'error');
-                                    }
-                                  }}
-                                >
-                                  <SelectTrigger className="inline-flex h-7 text-[10px] font-extrabold text-primary bg-primary/5 hover:bg-primary/10 border-primary/10 hover:border-primary/20 rounded px-2 w-auto max-w-[180px] focus:ring-0 focus:ring-offset-0">
-                                    <User className="w-2.5 h-2.5 mr-1" />
-                                    <SelectValue placeholder="Sin contacto" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="none">Sin contacto</SelectItem>
-                                    {contacts.filter(c => c.is_active).map(c => (
-                                      <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                <p className="text-xs font-bold text-primary truncate flex items-center gap-1">
+                                  <User className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                                  {assignedContact ? assignedContact.name : 'Sin contacto'}
+                                </p>
                               )}
                               {item.comentarios ? (
                                 <p className="text-xs text-muted-foreground truncate">

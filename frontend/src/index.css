@@ -174,6 +174,26 @@
   html {
     @apply font-sans;
   }
+  button, 
+  select, 
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  input[type="checkbox"],
+  input[type="radio"],
+  label,
+  .tabs-trigger,
+  .step-dot {
+    cursor: pointer;
+  }
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  [aria-disabled="true"],
+  .disabled {
+    cursor: not-allowed !important;
+  }
 }
 
 /* ===== WIZARD ANIMATIONS ===== */
@@ -399,6 +419,49 @@
   .wizard-step-card {
     padding: 0.75rem !important;
   }
+
+  /* Help Dialog Spacing for Short Viewports */
+  .help-container {
+    padding-top: 0.15rem !important;
+    padding-bottom: 0.15rem !important;
+    gap: 0.5rem !important;
+  }
+  
+  .help-container h2 {
+    font-size: 1.15rem !important;
+  }
+  
+  .help-container .text-sm {
+    font-size: 0.75rem !important;
+    line-height: 1.3 !important;
+  }
+  
+  .help-container .wizard-steps-grid {
+    gap: 0.5rem !important;
+  }
+  
+  .help-container .wizard-step-card {
+    padding: 0.5rem !important;
+  }
+  
+  .help-container .wizard-step-card h3 {
+    font-size: 0.75rem !important;
+  }
+  
+  .help-container .wizard-step-card p {
+    font-size: 0.65rem !important;
+    line-height: 1.15 !important;
+  }
+  
+  .help-container hr {
+    margin-top: 0.25rem !important;
+    margin-bottom: 0.25rem !important;
+  }
+  
+  .help-container button {
+    height: 2.25rem !important;
+    margin-top: 0.25rem !important;
+  }
 }
 
 /* Specific horizontal spacing optimizations for screens <= 1380px wide */
@@ -413,4 +476,78 @@
   .msf-title-banner h2 {
     font-size: 1.25rem !important;
   }
+}
+
+/* ===== RADAR / WAVE PULSE ANIMATION FOR DROP ZONE ===== */
+@keyframes radar-pulse {
+  0% {
+    transform: scale(0.15);
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(1.0);
+    opacity: 0;
+  }
+}
+
+.animate-radar-1 {
+  animation: radar-pulse 4.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.animate-radar-2 {
+  animation: radar-pulse 4.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  animation-delay: 1.5s;
+}
+
+.animate-radar-3 {
+  animation: radar-pulse 4.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  animation-delay: 3s;
+}
+
+/* ===== FLOATING / BOBBING ANIMATION FOR ICON ===== */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* ===== PREMIUM DIRECTIONAL PAGE TRANSITIONS ===== */
+@keyframes slideForward {
+  from {
+    opacity: 0;
+    transform: translateX(30px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes slideBackward {
+  from {
+    opacity: 0;
+    transform: translateX(-30px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.animate-slide-forward {
+  animation: slideForward 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-slide-backward {
+  animation: slideBackward 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
