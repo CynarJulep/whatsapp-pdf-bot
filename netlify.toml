@@ -3,10 +3,6 @@
 # ==============================================================================
 # Este archivo configura los procesos de compilación, ruteo y optimización de
 # metadatos para el Protocolo de Acción Inmediata (PAI).
-#
-# Nota sobre vistas previas (WhatsApp, Telegram, etc.):
-# Las vistas previas ricas en aplicaciones de mensajería se gestionan a través
-# de las etiquetas HTML <meta> (Open Graph) ubicadas en 'frontend/index.html'.
 
 [build]
   # Comando de instalación y compilación del frontend de React (Vite)
@@ -27,8 +23,8 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    # Cabeceras de seguridad básicas
-    X-Frame-Options = "DENY"
+    # NOTA: Se ha removido 'X-Frame-Options = "DENY"' para permitir que la página
+    # se integre correctamente dentro del iframe de Google Sites.
     X-Content-Type-Options = "nosniff"
     X-XSS-Protection = "1; mode=block"
     Referrer-Policy = "strict-origin-when-cross-origin"
