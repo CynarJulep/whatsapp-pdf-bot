@@ -34,10 +34,82 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
+// ── PDF Canvas Viewer ──────────────────────────────────────────────────────────
+// Renders a PDF File object directly to <canvas> elements using PDF.js.
+// This avoids blob: URLs which are blocked by Chrome when the page is
+// embedded inside a Google Sites iframe.
+function PdfCanvasViewer({ file }) {
+  const containerRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!file) return;
+    let cancelled = false;
+    const container = containerRef.current;
+
+    async function render() {
+      setLoading(true);
+      setError(null);
+      // Clear previous canvases
+      if (container) container.innerHTML = '';
+      try {
+        const buffer = await file.arrayBuffer();
+        if (cancelled) return;
+        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        if (cancelled) return;
+        for (let i = 1; i <= pdf.numPages; i++) {
+          if (cancelled) return;
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = '100%';
+          canvas.style.display = 'block';
+          if (i < pdf.numPages) {
+            canvas.style.borderBottom = '1px solid var(--border)';
+          }
+          if (container) container.appendChild(canvas);
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          if (cancelled) return;
+        }
+        setLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Error al renderizar el PDF');
+          setLoading(false);
+        }
+      }
+    }
+
+    render();
+    return () => { cancelled = true; };
+  }, [file]);
+
+  return (
+    <div className="w-full aspect-[1/1.43] rounded-b-2xl bg-background overflow-auto relative">
+      {loading && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-destructive text-xs px-4 text-center">
+          <AlertCircle className="w-6 h-6" />
+          <span>{error}</span>
+        </div>
+      )}
+      <div ref={containerRef} className={loading || error ? 'invisible' : ''} />
+    </div>
+  );
+}
+
 // ── Config ─────────────────────────────────────────────────────────────────────
 const DEFAULT_SUPABASE_URL = 'https://hltyozdvcqfmvqmyrlva.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhsdHlvemR2Y3FmbXZxbXlybHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNjE5OTEsImV4cCI6MjA5NTYzNzk5MX0.bidc0Iq1-2ztsa6oazqrkt4DJ5b4rBSnIC1PM1E733U';
-const DEFAULT_BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:3000' : 'https://whatsapp-pdf-bot-backend.onrender.com';
+const DEFAULT_BACKEND_URL = 'https://whatsapp-pdf-bot-backend.onrender.com';
 const MAX_RECIPIENTS = 3;
 
 const getParam = (param, def) => {
@@ -46,9 +118,13 @@ const getParam = (param, def) => {
   return localStorage.getItem(param.toUpperCase()) || def;
 };
 
+// In dev mode (no railway_url param configured), use '/api' so Vite's
+// proxy rewrites requests to localhost:3000 automatically.
+// In production, the full Render URL is used via the railway_url param.
 const supabaseUrl = getParam('supabase_url', DEFAULT_SUPABASE_URL);
 const supabaseKey = getParam('supabase_anon_key', DEFAULT_SUPABASE_ANON_KEY);
-const backendUrl  = getParam('railway_url', DEFAULT_BACKEND_URL);
+const _configuredBackendUrl = getParam('railway_url', null);
+const backendUrl  = _configuredBackendUrl || '/api';
 const supabase    = createClient(supabaseUrl, supabaseKey);
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -247,23 +323,15 @@ function DropZone({ onFile, connected, onOpenConfig }) {
 }
 
 // ── Step 1: Preview + Contact Picker (split layout) ────────────────────────────
-function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText }) {
+function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch }) {
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
-  const [pdfUrl, setPdfUrl] = useState(null);
   const [extracting, setExtracting] = useState(true);
   const [pdfInfo, setPdfInfo] = useState({ areaDestino: null, solicitudNro: null, tipo: null, subtipo: null, ubicacion: null, descripcion: null, fecha: null });
   const [messageText, setMessageText] = useState('');
   const [isEditingMessage, setIsEditingMessage] = useState(false);
 
   const activeContacts = contacts.filter(c => c.is_active);
-
-  // Create object URL for PDF preview
-  useEffect(() => {
-    const url = URL.createObjectURL(file);
-    setPdfUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
 
   // Extract PDF info and auto-select matching contact
   useEffect(() => {
@@ -311,6 +379,17 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     );
   }, [pdfInfo.subtipo, subtypesCatalog]);
 
+  // Propagate derivation status to the parent App component
+  useEffect(() => {
+    if (extracting) {
+      if (onDerivationChange) onDerivationChange(null);
+    } else if (matchedCatalogItem) {
+      if (onDerivationChange) onDerivationChange(matchedCatalogItem.derivar ? 'derivar' : 'no-derivar');
+    } else {
+      if (onDerivationChange) onDerivationChange('no-catalogado');
+    }
+  }, [matchedCatalogItem, extracting, onDerivationChange]);
+
   const filtered = activeContacts.filter(c => {
     const isAutoDetected = pdfInfo.areaDestino &&
       c.area_destino?.toLowerCase().trim() === pdfInfo.areaDestino.toLowerCase().trim();
@@ -355,80 +434,185 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selected, sending, onBack]);
 
+  const selectedRecipients = contacts.filter(c => selected.has(c.id));
+
   return (
     <div className="animate-fade-slide-up w-full">
       {/* PDF info banner / PAI catalog matching */}
-      <div className="flex flex-col gap-3 mb-4">
+      <div className="flex flex-col gap-3 mb-6">
         {extracting ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-            <Loader2 className="w-4 h-4 animate-spin" /> Analizando documento...
+          <div className="flex items-center gap-3 text-sm text-muted-foreground py-6 bg-card border rounded-3xl justify-center shadow-inner animate-pulse">
+            <Loader2 className="w-5 h-5 animate-spin text-primary" /> Analizando documento e identificando subtipos...
           </div>
         ) : (
           <>
-            {/* Quick stats / detected items */}
-            <div className="flex flex-wrap items-center gap-2">
-              {pdfInfo.areaDestino && (
-                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs font-semibold text-primary">
-                  <MapPin className="w-3.5 h-3.5" />
-                  Área detectada: {pdfInfo.areaDestino}
-                </div>
-              )}
-            </div>
-
-            {/* PAI Derivation Banner */}
+            {/* PAI Derivation Banner (Premium Status Board) */}
             <div className="animate-fade-slide-up">
               {matchedCatalogItem ? (
                 matchedCatalogItem.derivar ? (
-                  <div className="flex items-start gap-3 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 shadow-sm">
-                    <Zap className="w-5 h-5 mt-0.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 animate-pulse" />
-                    <div className="space-y-1">
-                      <p className="text-sm font-bold leading-none">Este reclamo SE DERIVA por PAI</p>
-                      <p className="text-xs leading-relaxed opacity-90">
-                        El subtipo <strong className="font-extrabold uppercase">{matchedCatalogItem.subtipo}</strong> está configurado para derivación.
-                      </p>
-                      {matchedCatalogItem.comentarios && (
-                        <p className="text-xs mt-1.5 font-semibold bg-emerald-500/10 dark:bg-emerald-500/5 px-2.5 py-1.5 rounded-lg border border-emerald-500/10 inline-block text-pretty">
-                          💡 {matchedCatalogItem.comentarios}
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-3xl bg-emerald-500/10 dark:bg-emerald-950/20 border border-emerald-500/25 shadow-sm transition-all duration-300">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                        <Zap className="w-6 h-6 animate-pulse" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Protocolo Activo</span>
+                          {pdfInfo.areaDestino && (
+                            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-[9px] font-bold text-primary dark:text-primary-foreground">
+                              <MapPin className="w-2.5 h-2.5" /> {pdfInfo.areaDestino}
+                            </div>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-black text-emerald-900 dark:text-emerald-300">ESTE RECLAMO SE DERIVA POR PAI</h4>
+                        <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 leading-relaxed">
+                          El subtipo <strong className="font-extrabold uppercase text-emerald-900 dark:text-emerald-200">{matchedCatalogItem.subtipo}</strong> está configurado en el catálogo PAI para su derivación.
                         </p>
-                      )}
+                        {matchedCatalogItem.comentarios && (
+                          <p className="text-[11px] mt-2 font-semibold bg-emerald-500/5 dark:bg-emerald-500/[0.02] px-3 py-2 rounded-xl border border-emerald-500/10 text-emerald-800 dark:text-emerald-300 inline-block text-pretty">
+                            💡 <strong>Nota del Catálogo:</strong> {matchedCatalogItem.comentarios}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Flow Diagram */}
+                    <div className="hidden lg:flex items-center gap-2 bg-emerald-500/5 px-4 py-3 rounded-2xl border border-emerald-500/10 shrink-0 text-[10px] font-bold text-emerald-800/80 dark:text-emerald-300/80">
+                      <div className="flex flex-col items-center gap-1 uppercase">
+                        <span className="opacity-60 font-semibold">1. SAC</span>
+                        <span className="bg-emerald-500/15 px-2 py-0.5 rounded text-emerald-600 dark:text-emerald-400 font-mono">PDF</span>
+                      </div>
+                      <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
+                      <div className="flex flex-col items-center gap-1 uppercase">
+                        <span className="opacity-60 font-semibold">2. Subtipo</span>
+                        <span className="bg-emerald-500/15 px-2 py-0.5 rounded max-w-[100px] truncate text-emerald-600 dark:text-emerald-400" title={pdfInfo.subtipo}>{pdfInfo.subtipo}</span>
+                      </div>
+                      <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1 animate-pulse" />
+                      <div className="flex flex-col items-center gap-1 uppercase">
+                        <span className="opacity-60 font-semibold">3. Destino</span>
+                        <span className="bg-emerald-500 text-white dark:bg-emerald-600 px-2 py-0.5 rounded shadow-xs font-black">DERIVAR</span>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-2 self-end md:self-auto">
+                      <Button 
+                        onClick={() => onCatalogSearch(matchedCatalogItem.subtipo)}
+                        variant="outline" 
+                        size="sm" 
+                        className="text-xs bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-900 dark:bg-card dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-950/40 h-9 font-bold rounded-xl shadow-xs transition-all active:scale-95 duration-150 cursor-pointer"
+                      >
+                        <Edit className="w-3.5 h-3.5 mr-1.5" /> Modificar Regla
+                      </Button>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-start gap-3 p-4 rounded-2xl bg-muted/60 border border-border/80 text-muted-foreground shadow-sm">
-                    <AlertCircle className="w-5 h-5 mt-0.5 text-muted-foreground flex-shrink-0" />
-                    <div className="space-y-1">
-                      <p className="text-sm font-bold leading-none text-foreground">Este reclamo NO se deriva por PAI</p>
-                      <p className="text-xs leading-relaxed">
-                        El subtipo <strong className="font-extrabold uppercase">{matchedCatalogItem.subtipo}</strong> está configurado como <span className="font-bold text-foreground">NO DERIVAR</span>.
-                      </p>
-                      {matchedCatalogItem.comentarios && (
-                        <p className="text-xs mt-1.5 font-medium bg-muted px-2.5 py-1.5 rounded-lg border inline-block text-pretty">
-                          📌 Nota: {matchedCatalogItem.comentarios}
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-3xl bg-rose-500/10 dark:bg-rose-950/20 border border-rose-500/25 shadow-sm transition-all duration-300">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
+                        <AlertCircle className="w-6 h-6 animate-pulse" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-rose-700 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">Protocolo Inactivo</span>
+                          {pdfInfo.areaDestino && (
+                            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-[9px] font-bold text-primary dark:text-primary-foreground">
+                              <MapPin className="w-2.5 h-2.5" /> {pdfInfo.areaDestino}
+                            </div>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-black text-rose-950 dark:text-rose-300">ESTE RECLAMO NO SE DERIVA POR PAI</h4>
+                        <p className="text-xs text-rose-700/80 dark:text-rose-400/80 leading-relaxed">
+                          El subtipo <strong className="font-extrabold uppercase text-rose-950 dark:text-rose-200">{matchedCatalogItem.subtipo}</strong> está configurado en el catálogo como <span className="font-bold">NO DERIVAR</span>.
                         </p>
-                      )}
+                        {matchedCatalogItem.comentarios && (
+                          <p className="text-[11px] mt-2 font-semibold bg-rose-500/5 dark:bg-rose-500/[0.02] px-3 py-2 rounded-xl border border-rose-500/10 text-rose-800 dark:text-rose-300 inline-block text-pretty">
+                            📌 <strong>Nota del Catálogo:</strong> {matchedCatalogItem.comentarios}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Flow Diagram */}
+                    <div className="hidden lg:flex items-center gap-2 bg-rose-500/5 px-4 py-3 rounded-2xl border border-rose-500/10 shrink-0 text-[10px] font-bold text-rose-800/80 dark:text-rose-300/80">
+                      <div className="flex flex-col items-center gap-1 uppercase">
+                        <span className="opacity-60 font-semibold">1. SAC</span>
+                        <span className="bg-rose-500/15 px-2 py-0.5 rounded text-rose-600 dark:text-rose-400 font-mono">PDF</span>
+                      </div>
+                      <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
+                      <div className="flex flex-col items-center gap-1 uppercase">
+                        <span className="opacity-60 font-semibold">2. Subtipo</span>
+                        <span className="bg-rose-500/15 px-2 py-0.5 rounded max-w-[100px] truncate text-rose-600 dark:text-rose-400" title={pdfInfo.subtipo}>{pdfInfo.subtipo}</span>
+                      </div>
+                      <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
+                      <div className="flex flex-col items-center gap-1 uppercase">
+                        <span className="opacity-60 font-semibold">3. Destino</span>
+                        <span className="bg-rose-600 text-white dark:bg-rose-700 px-2 py-0.5 rounded shadow-xs font-black">EXCLUIDO</span>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-2 self-end md:self-auto">
+                      <Button 
+                        onClick={() => onCatalogSearch(matchedCatalogItem.subtipo)}
+                        variant="outline" 
+                        size="sm" 
+                        className="text-xs bg-white text-rose-800 border-rose-200 hover:bg-rose-50 hover:text-rose-900 dark:bg-card dark:text-rose-300 dark:border-rose-800 dark:hover:bg-rose-950/40 h-9 font-bold rounded-xl shadow-xs transition-all active:scale-95 duration-150 cursor-pointer"
+                      >
+                        <Edit className="w-3.5 h-3.5 mr-1.5" /> Modificar Regla
+                      </Button>
                     </div>
                   </div>
                 )
               ) : (
-                <div className="flex items-start gap-3 p-4 rounded-2xl bg-blue-50 border border-blue-200 dark:bg-blue-950/20 dark:border-blue-800 text-blue-800 dark:text-blue-300 shadow-sm justify-between flex-wrap sm:flex-nowrap">
-                  <div className="flex items-start gap-3">
-                    <HelpCircle className="w-5 h-5 mt-0.5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-3xl bg-blue-500/10 dark:bg-blue-950/20 border border-blue-500/25 shadow-sm transition-all duration-300">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                      <HelpCircle className="w-6 h-6 animate-pulse" />
+                    </div>
                     <div className="space-y-1">
-                      <p className="text-sm font-bold leading-none">Subtipo no catalogado</p>
-                      <p className="text-xs leading-relaxed opacity-90">
-                        El subtipo <strong className="font-extrabold uppercase">{pdfInfo.subtipo || "Desconocido"}</strong> no está registrado en el buscador PAI. Podés derivarlo igual o registrarlo en el catálogo.
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">Sin Registro</span>
+                        {pdfInfo.areaDestino && (
+                          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-[9px] font-bold text-primary dark:text-primary-foreground">
+                            <MapPin className="w-2.5 h-2.5" /> {pdfInfo.areaDestino}
+                          </div>
+                        )}
+                      </div>
+                      <h4 className="text-sm font-black text-blue-950 dark:text-blue-300">SUBTIPO NO CATALOGADO</h4>
+                      <p className="text-xs text-blue-700/80 dark:text-blue-400/80 leading-relaxed">
+                        El subtipo <strong className="font-extrabold uppercase text-blue-950 dark:text-blue-200">{pdfInfo.subtipo || "Desconocido"}</strong> no está registrado en el catálogo PAI.
                       </p>
                     </div>
                   </div>
+                  
+                  {/* Flow Diagram */}
+                  <div className="hidden lg:flex items-center gap-2 bg-blue-500/5 px-4 py-3 rounded-2xl border border-blue-500/10 shrink-0 text-[10px] font-bold text-blue-800/80 dark:text-blue-300/80">
+                    <div className="flex flex-col items-center gap-1 uppercase">
+                      <span className="opacity-60 font-semibold">1. SAC</span>
+                      <span className="bg-blue-500/15 px-2 py-0.5 rounded text-blue-600 dark:text-blue-400 font-mono">PDF</span>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
+                    <div className="flex flex-col items-center gap-1 uppercase">
+                      <span className="opacity-60 font-semibold">2. Subtipo</span>
+                      <span className="bg-blue-500/15 px-2 py-0.5 rounded max-w-[100px] truncate text-blue-600 dark:text-blue-400" title={pdfInfo.subtipo}>{pdfInfo.subtipo}</span>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
+                    <div className="flex flex-col items-center gap-1 uppercase">
+                      <span className="opacity-60 font-semibold">3. Destino</span>
+                      <span className="bg-blue-500/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded font-bold">MANUAL</span>
+                    </div>
+                  </div>
+
                   {pdfInfo.subtipo && (
-                    <Button 
-                      onClick={() => onAddSubtipoToCatalog(pdfInfo.subtipo, pdfInfo.tipo)}
-                      variant="outline" 
-                      size="sm" 
-                      className="text-xs bg-white text-blue-700 border-blue-200 hover:bg-blue-50 hover:text-blue-800 h-8 self-center flex-shrink-0"
-                    >
-                      <Plus className="w-3.5 h-3.5 mr-1" /> Registrar
-                    </Button>
+                    <div className="shrink-0 flex items-center gap-2 self-end md:self-auto">
+                      <Button 
+                        onClick={() => onAddSubtipoToCatalog(pdfInfo.subtipo, pdfInfo.tipo)}
+                        variant="outline" 
+                        size="sm" 
+                        className="text-xs bg-white text-blue-800 border-blue-200 hover:bg-blue-50 hover:text-blue-900 dark:bg-card dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-950/40 h-9 font-bold rounded-xl shadow-xs transition-all active:scale-95 duration-150 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 mr-1" /> Registrar Subtipo
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}
@@ -454,28 +638,20 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
               <X className="w-4 h-4" />
             </button>
           </div>
-          {pdfUrl ? (
-            <iframe
-              src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`}
-              className="w-full aspect-[1/1.43] rounded-b-2xl border-0 bg-background overflow-hidden"
-              scrolling="no"
-            />
-          ) : (
-            <div className="flex-1 flex items-center justify-center min-h-[400px]">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          )}
+          <PdfCanvasViewer file={file} />
         </div>
 
-        {/* RIGHT: Contact Picker */}
-        <div className="flex flex-col gap-3">
-          <div className="flex items-end justify-between border-b pb-2 mb-1">
+        {/* RIGHT: Contact Picker & Message Flow */}
+        <div className="flex flex-col gap-4">
+          
+          {/* Header */}
+          <div className="flex items-end justify-between border-b pb-2">
             <div className="space-y-1">
-              <h3 className="text-3xl sm:text-4xl font-black tracking-tight text-foreground leading-none">
+              <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground leading-none">
                 ¿A quién enviás?
               </h3>
               <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">
-                Máximo {MAX_RECIPIENTS} destinatarios · {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
+                Seleccioná hasta {MAX_RECIPIENTS} destinatarios
               </p>
             </div>
             {selected.size >= MAX_RECIPIENTS && (
@@ -483,45 +659,23 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
             )}
           </div>
 
-          {/* Message Preview / Editor */}
-          <div className="rounded-xl border border-primary/10 bg-primary/[0.01] dark:bg-primary/[0.02] p-4 space-y-2.5 relative shadow-sm hover:shadow transition-all duration-300">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-primary dark:text-primary-foreground uppercase tracking-wider">
-                Mensaje de WhatsApp
-              </span>
-              <Button
-                variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onClick={() => setIsEditingMessage(!isEditingMessage)}
-              >
-                {isEditingMessage ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Edit className="w-3.5 h-3.5" />}
-              </Button>
-            </div>
-            {isEditingMessage ? (
-              <textarea
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                className="w-full min-h-[140px] text-xs font-medium bg-card text-foreground border rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-primary shadow-inner"
-              />
-            ) : (
-              <div className="text-xs bg-card border rounded-lg p-2.5 font-medium whitespace-pre-wrap leading-relaxed text-muted-foreground min-h-[140px] overflow-y-auto max-h-[180px] shadow-inner">
-                {messageText}
-              </div>
-            )}
-          </div>
-
-          {/* Search */}
+          {/* Search Box */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Buscar..." value={search}
-              onChange={(e) => setSearch(e.target.value)} className="pl-10 h-10 text-sm" />
+            <Input 
+              placeholder="Buscar destinatario por nombre, área o subtipo..." 
+              value={search}
+              onChange={(e) => setSearch(e.target.value)} 
+              className="pl-10 h-10 text-sm" 
+            />
           </div>
 
-          {/* Contacts list */}
-          <ScrollArea className="h-[280px] rounded-2xl border bg-card/60 dark:bg-card/20 shadow-inner">
+          {/* Contacts list ScrollArea (placed right under Search) */}
+          <ScrollArea className="h-[220px] rounded-2xl border bg-card/60 dark:bg-card/20 shadow-inner">
             <div className="p-2 space-y-1">
               {filtered.length === 0 ? (
                 <div className="py-12 text-center text-muted-foreground text-sm">
-                  {search.trim() === '' ? 'Escribí en el buscador para encontrar destinatarios...' : 'Sin destinatarios'}
+                  {search.trim() === '' ? 'Escribí en el buscador para encontrar destinatarios...' : 'Sin destinatarios que coincidan'}
                 </div>
               ) : filtered.map(c => {
                 const isSelected = selected.has(c.id);
@@ -533,7 +687,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                   <div
                     key={c.id}
                     onClick={() => !isDisabled && toggle(c.id)}
-                    className={`contact-card flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200
+                    className={`contact-card flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200
                       ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
                       ${isSelected
                         ? 'bg-primary/10 border border-primary/25'
@@ -578,9 +732,69 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
             </div>
           </ScrollArea>
 
+          {/* Message Preview / Editor (placed under the contacts list) */}
+          <div className="rounded-xl border border-primary/10 bg-primary/[0.01] dark:bg-primary/[0.02] p-4 space-y-2.5 relative shadow-sm hover:shadow transition-all duration-300">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-primary dark:text-primary-foreground uppercase tracking-wider">
+                Mensaje de WhatsApp
+              </span>
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={() => setIsEditingMessage(!isEditingMessage)}
+              >
+                {isEditingMessage ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Edit className="w-3.5 h-3.5" />}
+              </Button>
+            </div>
+            {isEditingMessage ? (
+              <textarea
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                className="w-full min-h-[140px] text-xs font-medium bg-card text-foreground border rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-primary shadow-inner"
+              />
+            ) : (
+              <div className="text-xs bg-card border rounded-lg p-2.5 font-medium whitespace-pre-wrap leading-relaxed text-muted-foreground min-h-[140px] overflow-y-auto max-h-[180px] shadow-inner">
+                {messageText}
+              </div>
+            )}
+          </div>
+
+          {/* Selected Recipients Preview (horizontal chips area) */}
+          <div className="space-y-1.5">
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Destinatarios a enviar ({selected.size})
+            </span>
+            {selectedRecipients.length === 0 ? (
+              <div className="text-xs text-amber-600 dark:text-amber-400 font-medium bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 flex items-center gap-2 animate-fade-slide-up">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                Ningún destinatario seleccionado. Buscá y seleccionalos arriba.
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2 p-2.5 bg-muted/30 border rounded-xl shadow-inner min-h-[50px] items-center">
+                {selectedRecipients.map(recipient => (
+                  <div 
+                    key={recipient.id} 
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-xs font-semibold text-primary dark:text-primary-foreground animate-scale-in"
+                  >
+                    <Avatar className="w-5 h-5">
+                      <AvatarFallback className="text-[9px] bg-primary text-primary-foreground font-black">
+                        {initials(recipient.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="truncate max-w-[120px]">{recipient.name}</span>
+                    <button 
+                      onClick={() => toggle(recipient.id)} 
+                      className="ml-1 opacity-60 hover:opacity-100 transition-opacity p-0.5 rounded-full hover:bg-primary/20"
+                    >
+                      <X className="w-3.5 h-3.5 text-foreground/75" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Buttons */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 pt-2">
             <Button variant="outline" onClick={onBack} disabled={sending} className="gap-2 h-12">
               <ChevronLeft className="w-4 h-4" /> Volver
             </Button>
@@ -1146,6 +1360,8 @@ export default function App() {
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogPrefill, setCatalogPrefill] = useState(null);
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [derivationStatus, setDerivationStatus] = useState(null); // 'derivar' | 'no-derivar' | 'no-catalogado' | null
 
   const filteredShipments = useMemo(() => {
     if (!historySearch.trim()) return shipments;
@@ -1404,16 +1620,18 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <div className={`min-h-screen flex flex-col transition-all duration-500
+        ${derivationStatus === 'derivar' 
+          ? 'bg-gradient-to-br from-emerald-500/[0.04] via-background to-emerald-500/[0.02] dark:from-emerald-500/[0.02] dark:via-background dark:to-emerald-500/[0.01]' 
+          : derivationStatus === 'no-derivar' 
+            ? 'bg-gradient-to-br from-rose-500/[0.04] via-background to-rose-500/[0.02] dark:from-rose-500/[0.02] dark:via-background dark:to-rose-500/[0.01]' 
+            : 'bg-background'}`}>
 
         {/* ── Cabecera simplificada y adaptada para Google Sites ── */}
         <div className="max-w-6xl mx-auto w-full px-4 pt-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 border-b-2 border-[#003b73]">
           <div className="flex flex-col gap-2">
             <h1 
-              className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tighter leading-[0.95] uppercase select-none transition-all duration-300"
-              style={{
-                color: '#000000'
-              }}
+              className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tighter leading-[0.95] uppercase select-none transition-all duration-300 text-foreground"
             >
               Protocolo de Acción Inmediata
             </h1>
@@ -1511,9 +1729,11 @@ export default function App() {
               contacts={loadingContacts ? [] : contacts}
               subtypesCatalog={subtypesCatalog}
               onAddSubtipoToCatalog={handleAddSubtipoToCatalog}
-              onBack={() => { setFile(null); setStep(0); }}
+              onBack={() => { setFile(null); setStep(0); setDerivationStatus(null); }}
               onSend={handleSend} sending={sending}
               progress={progress} progressText={progressText}
+              onDerivationChange={setDerivationStatus}
+              onCatalogSearch={(query) => { setCatalogSearch(query); setCatalogOpen(true); }}
             />
           )}
 
@@ -1809,6 +2029,8 @@ export default function App() {
           supabase={supabase}
           prefill={catalogPrefill}
           onClearPrefill={() => setCatalogPrefill(null)}
+          searchPrefill={catalogSearch}
+          onClearSearchPrefill={() => setCatalogSearch('')}
           contacts={contacts}
           onReloadContacts={loadContacts}
         />
