@@ -33,6 +33,8 @@ export default function SubtypesCatalogDialog({
   supabase,
   prefill,
   onClearPrefill,
+  searchPrefill,
+  onClearSearchPrefill,
   contacts = [],
   onReloadContacts
 }) {
@@ -69,6 +71,14 @@ export default function SubtypesCatalogDialog({
       if (onClearPrefill) onClearPrefill();
     }
   }, [prefill, open, onClearPrefill]);
+
+  // Handle search prefill from outer state
+  useEffect(() => {
+    if (searchPrefill && open) {
+      setSearch(searchPrefill);
+      if (onClearSearchPrefill) onClearSearchPrefill();
+    }
+  }, [searchPrefill, open, onClearSearchPrefill]);
  
   // Helper to map subtypes to contacts for O(1) lookups
   const subtypeToContactMap = useMemo(() => {

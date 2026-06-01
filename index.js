@@ -35,6 +35,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 // Global state variables
 let sock = null;
 let isConnected = false;
+let isConnecting = false;
 let qrCode = null;
 
 /**
@@ -161,6 +162,7 @@ async function useSupabaseAuthState(supabase, sessionId) {
  * Initialize WhatsApp Baileys Connection
  */
 async function connectToWhatsApp() {
+    isConnecting = true;
     try {
         // Cleanup existing socket if any to prevent duplicate instances
         if (sock) {
@@ -193,6 +195,7 @@ async function connectToWhatsApp() {
 
             if (qr) {
                 qrCode = qr;
+                isConnecting = false;
                 console.log('\n--- ESCANEA ESTE CÓDIGO QR CON WHATSAPP BUSINESS ---');
                 qrcode.generate(qr, { small: true });
                 console.log('-----------------------------------------------------\n');
@@ -210,11 +213,14 @@ async function connectToWhatsApp() {
                 console.warn(`[WhatsApp] Connection closed. Status Code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
 
                 if (shouldReconnect) {
+                    isConnecting = true;
                     // Reconnect automatically immediately or with a small delay
                     setTimeout(connectToWhatsApp, 5000);
                 } else if (isConflict) {
+                    isConnecting = false;
                     console.warn('[WhatsApp] Session replaced by another active instance (Render/Prod). Standing down locally to prevent conflict loops.');
                 } else {
+                    isConnecting = true;
                     console.error('[WhatsApp] Logged out. Deleting credentials in Supabase to start fresh.');
                     await supabase.from('baileys_creds').delete().eq('session_id', SESSION_ID);
                     await supabase.from('baileys_keys').delete().eq('session_id', SESSION_ID);
@@ -222,6 +228,7 @@ async function connectToWhatsApp() {
                 }
             } else if (connection === 'open') {
                 isConnected = true;
+                isConnecting = false;
                 qrCode = null;
                 console.log(`[WhatsApp] Connection established successfully! Logged in as: ${sock.user.name || sock.user.id}`);
             }
@@ -229,6 +236,7 @@ async function connectToWhatsApp() {
 
     } catch (err) {
         console.error('[WhatsApp] Critical error during initialization:', err);
+        isConnecting = false;
         setTimeout(connectToWhatsApp, 10000); // retry after 10s
     }
 }
@@ -264,6 +272,7 @@ app.get('/status', (req, res) => {
     res.status(200).json({
         success: true,
         connected: isConnected,
+        connecting: isConnecting,
         session_id: SESSION_ID,
         phone_user: sock?.user ? sock.user.id : null,
         qr: qrCode
@@ -401,6 +410,7 @@ app.post('/disconnect', async (req, res) => {
 
         // 2. Terminate the WhatsApp Socket connection and logout cleanly
         isConnected = false;
+        isConnecting = true;
         qrCode = null;
         if (sock) {
             try {

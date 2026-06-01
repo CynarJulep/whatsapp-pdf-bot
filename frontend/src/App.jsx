@@ -226,21 +226,59 @@ function StepIndicator({ current, labels }) {
 }
 
 // ── Step 0: Drop Zone ──────────────────────────────────────────────────────────
-function DropZone({ onFile, connected, onOpenConfig }) {
+function DropZone({ onFile, botStatus, onOpenConfig }) {
   const [active, setActive] = useState(false);
   const inputRef = useRef(null);
 
+  const { connected, connecting, checking, qr, offline } = botStatus;
+  const isInteractable = connected;
+
   const handleDrag = (e) => {
-    if (!connected) return;
+    if (!isInteractable) return;
     e.preventDefault(); e.stopPropagation();
     setActive(e.type === 'dragenter' || e.type === 'dragover');
   };
   const validate = (file) => {
-    if (!connected) return;
+    if (!isInteractable) return;
     if (file.type !== 'application/pdf') return;
     if (file.size > 52428800) return;
     onFile(file);
   };
+
+  // Determine status visual elements
+  let content;
+  if (checking || offline) {
+    content = {
+      icon: <RefreshCw className="w-10 h-10 text-primary animate-spin" />,
+      title: "Despertando servidor...",
+      description: "El bot está inactivo en la nube. Lo estamos despertando, por favor aguardá un momento...",
+      className: "border-muted bg-muted/20 opacity-75 cursor-wait"
+    };
+  } else if (!connected && connecting && !qr) {
+    content = {
+      icon: <Loader2 className="w-10 h-10 text-primary animate-spin" />,
+      title: "Iniciando sesión de WhatsApp...",
+      description: "Recuperando credenciales y conectando. No es necesario escanear el QR, aguardá unos segundos.",
+      className: "border-primary/30 bg-primary/[0.02] cursor-wait animate-pulse"
+    };
+  } else if (!connected) {
+    content = {
+      icon: <WifiOff className="w-10 h-10 text-red-500 animate-pulse" />,
+      title: "WhatsApp Desconectado",
+      description: "Para poder enviar reclamos primero debés vincular la sesión de WhatsApp del teléfono de PAI.",
+      className: "border-red-200 bg-red-500/[0.02] opacity-70 hover:border-red-300",
+      showButton: true
+    };
+  } else {
+    content = {
+      icon: <UploadCloud className="w-10 h-10 text-primary" />,
+      title: active ? 'Soltá para cargar' : 'Arrastrá acá para enviar por PAI el reclamo...',
+      description: "o tocá para buscar en tus archivos",
+      className: active 
+        ? 'dropzone-active border-primary bg-primary/5 scale-[1.01]' 
+        : 'border-border hover:border-primary/50 hover:bg-muted/40'
+    };
+  }
 
   return (
     <div className="animate-fade-slide-up flex flex-col items-center w-full">
@@ -249,72 +287,62 @@ function DropZone({ onFile, connected, onOpenConfig }) {
         onDragLeave={handleDrag}
         onDrop={(e) => { 
           e.preventDefault(); e.stopPropagation(); 
-          if (!connected) return;
+          if (!isInteractable) return;
           setActive(false); 
           const f = e.dataTransfer.files?.[0]; 
           if (f) validate(f); 
         }}
         onClick={() => {
-          if (connected) {
+          if (isInteractable) {
             inputRef.current?.click();
-          } else {
+          } else if (!checking && !connecting && !connected) {
             onOpenConfig();
           }
         }}
         className={`dropzone-idle w-full max-w-4xl border-2 border-dashed rounded-3xl cursor-pointer
           flex flex-col items-center justify-center gap-6 py-16 px-8
           transition-all duration-300 select-none
-          ${!connected
-            ? 'border-muted bg-muted/20 opacity-70 cursor-not-allowed'
-            : active 
-              ? 'dropzone-active border-primary bg-primary/5 scale-[1.01]' 
-              : 'border-border hover:border-primary/50 hover:bg-muted/40'
-          }`}
+          ${content.className}`}
       >
         <input 
           ref={inputRef} 
           type="file" 
           accept="application/pdf" 
           className="hidden"
-          disabled={!connected}
+          disabled={!isInteractable}
           onChange={(e) => e.target.files?.[0] && validate(e.target.files[0])} 
         />
         <div className={`w-20 h-20 rounded-3xl flex items-center justify-center transition-all duration-300 shadow-sm
-          ${!connected 
+          ${!isInteractable && !checking && !connecting
             ? 'bg-red-100 dark:bg-red-950/30 text-red-500'
             : active 
               ? 'bg-primary text-primary-foreground scale-110' 
-              : 'bg-muted text-muted-foreground animate-gentle-float'
+              : 'bg-muted text-muted-foreground'
           }`}
         >
-          {connected ? <UploadCloud className="w-10 h-10" /> : <WifiOff className="w-10 h-10 text-red-500 animate-pulse" />}
+          {content.icon}
         </div>
         <div className="text-center space-y-2">
-          {connected ? (
-            <>
-              <p className="text-xl sm:text-2xl font-bold text-foreground">
-                {active ? 'Soltá para cargar' : 'Arrastrá acá para enviar por PAI el reclamo...'}
-              </p>
-              <p className="text-sm sm:text-base text-muted-foreground">o tocá para buscar en tus archivos</p>
-              <p className="text-xs text-muted-foreground/50 mt-4">Solo PDF · Máximo 50 MB</p>
-            </>
-          ) : (
-            <>
-              <p className="text-xl sm:text-2xl font-black text-red-600 dark:text-red-400">
-                WhatsApp Desconectado
-              </p>
-              <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto">
-                Para poder enviar reclamos primero debés vincular la sesión de WhatsApp del teléfono de PAI.
-              </p>
-              <div className="pt-2">
-                <Button 
-                  onClick={(e) => { e.stopPropagation(); onOpenConfig(); }}
-                  className="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md gap-2"
-                >
-                  Vincular WhatsApp <ArrowRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </>
+          <p className={`text-xl sm:text-2xl font-bold ${
+            !isInteractable && !checking && !connecting ? 'text-red-600 dark:text-red-400 font-black' : 'text-foreground'
+          }`}>
+            {content.title}
+          </p>
+          <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto">
+            {content.description}
+          </p>
+          {content.showButton && (
+            <div className="pt-4">
+              <Button 
+                onClick={(e) => { e.stopPropagation(); onOpenConfig(); }}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md gap-2"
+              >
+                Vincular WhatsApp <ArrowRight className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
+          {isInteractable && (
+            <p className="text-xs text-muted-foreground/50 pt-2">Solo PDF · Máximo 50 MB</p>
           )}
         </div>
       </div>
@@ -1144,17 +1172,37 @@ function StatusTab({ botStatus, contacts, onDisconnect, disconnecting }) {
       )}
 
       {!botStatus.connected && !botStatus.offline && (
-        <Card className="border-red-200 dark:border-red-900 bg-red-500/[0.02]">
+        <Card className={`border-2 ${
+          botStatus.connecting && !botStatus.qr 
+            ? 'border-primary/20 bg-primary/[0.01]' 
+            : 'border-red-200 dark:border-red-900 bg-red-500/[0.02]'
+        }`}>
           <CardHeader className="text-center pb-4">
-            <Badge variant="destructive" className="mx-auto mb-2 text-[10px] font-black uppercase tracking-wider animate-pulse px-3 py-1 bg-red-600 text-white">
-              ⚠️ VINCULACIÓN REQUERIDA
-            </Badge>
-            <CardTitle className="text-base font-black text-red-600 dark:text-red-400 leading-tight">
-              ESCANEA EL QR CON EL CELULAR DEL PAI PARA CONECTARTE
-            </CardTitle>
-            <CardDescription className="text-xs font-semibold mt-1">
-              Abrí WhatsApp → Dispositivos vinculados → Vincular dispositivo
-            </CardDescription>
+            {botStatus.connecting && !botStatus.qr ? (
+              <>
+                <Badge className="mx-auto mb-2 text-[10px] font-black uppercase tracking-wider animate-pulse px-3 py-1 bg-primary text-primary-foreground border-0">
+                  ⚡ CONECTANDO...
+                </Badge>
+                <CardTitle className="text-base font-black text-primary leading-tight">
+                  INICIANDO SESIÓN DE WHATSAPP
+                </CardTitle>
+                <CardDescription className="text-xs font-semibold mt-1">
+                  Se están cargando las credenciales guardadas. Aguardá unos segundos.
+                </CardDescription>
+              </>
+            ) : (
+              <>
+                <Badge variant="destructive" className="mx-auto mb-2 text-[10px] font-black uppercase tracking-wider animate-pulse px-3 py-1 bg-red-600 text-white">
+                  ⚠️ VINCULACIÓN REQUERIDA
+                </Badge>
+                <CardTitle className="text-base font-black text-red-600 dark:text-red-400 leading-tight">
+                  ESCANEA EL QR CON EL CELULAR DEL PAI PARA CONECTARTE
+                </CardTitle>
+                <CardDescription className="text-xs font-semibold mt-1">
+                  Abrí WhatsApp → Dispositivos vinculados → Vincular dispositivo
+                </CardDescription>
+              </>
+            )}
           </CardHeader>
           <CardContent className="flex justify-center pb-6">
             {botStatus.qr ? (
@@ -1163,8 +1211,10 @@ function StatusTab({ botStatus, contacts, onDisconnect, disconnecting }) {
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3 py-8">
-                <RefreshCw className="w-8 h-8 text-muted-foreground animate-spin" />
-                <p className="text-sm text-muted-foreground">Generando código QR...</p>
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <p className="text-sm text-muted-foreground">
+                  {botStatus.connecting ? 'Conectando con WhatsApp...' : 'Generando código QR...'}
+                </p>
               </div>
             )}
           </CardContent>
@@ -1338,7 +1388,7 @@ export default function App() {
   const [configTab, setConfigTab] = useState('contacts');
   const [contacts, setContacts] = useState([]);
   const [loadingContacts, setLoadingContacts] = useState(true);
-  const [botStatus, setBotStatus] = useState({ connected: false, checking: true, qr: null, offline: true, phoneUser: null });
+  const [botStatus, setBotStatus] = useState({ connected: false, connecting: false, checking: true, qr: null, offline: false, phoneUser: null });
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState('send');
   const [step, setStep] = useState(0);
@@ -1474,11 +1524,18 @@ export default function App() {
         if (!res.ok) throw new Error();
         const data = await res.json();
         failedCount = 0;
-        setBotStatus({ connected: !!data.connected, checking: false, qr: data.qr || null, offline: false, phoneUser: data.phone_user || null });
+        setBotStatus({
+          connected: !!data.connected,
+          connecting: !!data.connecting,
+          checking: false,
+          qr: data.qr || null,
+          offline: false,
+          phoneUser: data.phone_user || null
+        });
       } catch {
         failedCount++;
         if (failedCount >= 3) {
-          setBotStatus({ connected: false, checking: false, qr: null, offline: true, phoneUser: null });
+          setBotStatus({ connected: false, connecting: false, checking: false, qr: null, offline: true, phoneUser: null });
         }
       }
     };
@@ -1718,7 +1775,7 @@ export default function App() {
             <div className="flex flex-col items-center gap-6 w-full">
               <DropZone 
                 onFile={(f) => { setFile(f); setStep(1); }} 
-                connected={botStatus.connected}
+                botStatus={botStatus}
                 onOpenConfig={handleOpenConfig}
               />
             </div>
