@@ -338,3 +338,79 @@
     z-index: 1;
   }
 }
+
+/* ===== RESPONSIVE OPTIMIZATIONS FOR 720p / 1366x768 AND SHORT VIEWPORTS ===== */
+@media (max-height: 800px) {
+  .msf-header-container {
+    padding-top: 1rem !important;
+    padding-bottom: 0.5rem !important;
+    gap: 1rem !important;
+  }
+  
+  .msf-title {
+    font-size: 1.5rem !important;
+  }
+  
+  .msf-subtitle {
+    font-size: 0.75rem !important;
+    margin-top: 0.125rem !important;
+  }
+  
+  main {
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+  }
+  
+  .preview-split-grid {
+    gap: 1rem !important;
+  }
+  
+  .pdf-viewer-container {
+    max-height: 380px !important;
+  }
+  
+  .contacts-scroll-area {
+    height: 140px !important;
+  }
+  
+  .message-preview-container {
+    padding: 0.75rem !important;
+  }
+  
+  .message-textarea {
+    min-height: 90px !important;
+    height: 90px !important;
+  }
+  
+  .message-preview-box {
+    min-height: 90px !important;
+    max-height: 120px !important;
+  }
+  
+  .send-btn-container {
+    padding-top: 0.25rem !important;
+  }
+  
+  /* Wizard steps spacing */
+  .wizard-steps-grid {
+    gap: 0.75rem !important;
+  }
+  
+  .wizard-step-card {
+    padding: 0.75rem !important;
+  }
+}
+
+/* Specific horizontal spacing optimizations for screens <= 1380px wide */
+@media (max-width: 1380px) {
+  .msf-header-container h1 {
+    font-size: 1.5rem !important;
+  }
+  .msf-header-container p {
+    font-size: 0.75rem !important;
+  }
+  
+  .msf-title-banner h2 {
+    font-size: 1.25rem !important;
+  }
+}

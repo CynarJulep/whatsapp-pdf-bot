@@ -20,6 +20,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const SESSION_ID = process.env.SESSION_ID || 'pai';
+const MOCK_CONNECTION = process.env.MOCK_CONNECTION === 'true';
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -162,6 +163,13 @@ async function useSupabaseAuthState(supabase, sessionId) {
  * Initialize WhatsApp Baileys Connection
  */
 async function connectToWhatsApp() {
+    if (MOCK_CONNECTION) {
+        console.log('[WhatsApp] Running in MOCK_CONNECTION mode. WhatsApp connection simulated.');
+        isConnected = true;
+        isConnecting = false;
+        qrCode = null;
+        return;
+    }
     isConnecting = true;
     try {
         // Cleanup existing socket if any to prevent duplicate instances
@@ -274,7 +282,7 @@ app.get('/status', (req, res) => {
         connected: isConnected,
         connecting: isConnecting,
         session_id: SESSION_ID,
-        phone_user: sock?.user ? sock.user.id : null,
+        phone_user: MOCK_CONNECTION ? '549342555555:12@s.whatsapp.net' : (sock?.user ? sock.user.id : null),
         qr: qrCode
     });
 });
@@ -290,7 +298,7 @@ app.post('/send-pdf', async (req, res) => {
         });
     }
 
-    if (!isConnected || !sock) {
+    if (!isConnected || (!sock && !MOCK_CONNECTION)) {
         return res.status(503).json({ 
             success: false, 
             message: 'El bot de WhatsApp no está conectado o inicializado.' 
@@ -333,13 +341,20 @@ app.post('/send-pdf', async (req, res) => {
         const fileBuffer = Buffer.from(arrayBuffer);
 
         // 4. Send Document using Baileys
-        console.log(`[Webhook] Sending PDF to JID: ${jid}...`);
-        const response = await sock.sendMessage(jid, {
-            document: fileBuffer,
-            mimetype: 'application/pdf',
-            fileName: displayName || fileName,
-            caption: caption || 'Adjunto el documento solicitado.'
-        });
+        let response;
+        if (MOCK_CONNECTION) {
+            console.log(`[Webhook] [MOCK] Simulating sending PDF to JID: ${jid}...`);
+            await new Promise(resolve => setTimeout(resolve, 1500)); // simulate delay
+            response = { key: { id: `MOCK_${Date.now()}` } };
+        } else {
+            console.log(`[Webhook] Sending PDF to JID: ${jid}...`);
+            response = await sock.sendMessage(jid, {
+                document: fileBuffer,
+                mimetype: 'application/pdf',
+                fileName: displayName || fileName,
+                caption: caption || 'Adjunto el documento solicitado.'
+            });
+        }
 
         console.log(`[Webhook] PDF successfully sent. Message ID: ${response.key.id}`);
 
@@ -392,6 +407,18 @@ app.post('/send-pdf', async (req, res) => {
 // Endpoint to completely disconnect WhatsApp session and clear credentials
 app.post('/disconnect', async (req, res) => {
     console.log(`[WhatsApp] Disconnecting session: ${SESSION_ID} requested by client...`);
+    if (MOCK_CONNECTION) {
+        isConnected = false;
+        isConnecting = true;
+        setTimeout(() => {
+            isConnected = true;
+            isConnecting = false;
+        }, 3000);
+        return res.status(200).json({
+            success: true,
+            message: 'Desconectado y reconectado en modo simulación exitosamente.'
+        });
+    }
     try {
         // 1. Delete credentials and keys from Supabase
         const { error: errCreds } = await supabase

@@ -89,7 +89,7 @@ function PdfCanvasViewer({ file }) {
   }, [file]);
 
   return (
-    <div className="w-full aspect-[1/1.43] rounded-b-2xl bg-background overflow-auto relative">
+    <div className="w-full aspect-[1/1.43] rounded-b-2xl bg-background overflow-auto relative pdf-viewer-container">
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -473,184 +473,39 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
             <Loader2 className="w-5 h-5 animate-spin text-primary" /> Analizando documento e identificando subtipos...
           </div>
         ) : (
-          <>
-            {/* PAI Derivation Banner (Premium Status Board) */}
-            <div className="animate-fade-slide-up">
-              {matchedCatalogItem ? (
-                matchedCatalogItem.derivar ? (
-                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-3xl bg-emerald-500/10 dark:bg-emerald-950/20 border border-emerald-500/25 shadow-sm transition-all duration-300">
-                    <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
-                        <Zap className="w-6 h-6 animate-pulse" />
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Protocolo Activo</span>
-                          {pdfInfo.areaDestino && (
-                            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-[9px] font-bold text-primary dark:text-primary-foreground">
-                              <MapPin className="w-2.5 h-2.5" /> {pdfInfo.areaDestino}
-                            </div>
-                          )}
-                        </div>
-                        <h4 className="text-sm font-black text-emerald-900 dark:text-emerald-300">ESTE RECLAMO SE DERIVA POR PAI</h4>
-                        <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 leading-relaxed">
-                          El subtipo <strong className="font-extrabold uppercase text-emerald-900 dark:text-emerald-200">{matchedCatalogItem.subtipo}</strong> está configurado en el catálogo PAI para su derivación.
-                        </p>
-                        {matchedCatalogItem.comentarios && (
-                          <p className="text-[11px] mt-2 font-semibold bg-emerald-500/5 dark:bg-emerald-500/[0.02] px-3 py-2 rounded-xl border border-emerald-500/10 text-emerald-800 dark:text-emerald-300 inline-block text-pretty">
-                            💡 <strong>Nota del Catálogo:</strong> {matchedCatalogItem.comentarios}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Flow Diagram */}
-                    <div className="hidden lg:flex items-center gap-2 bg-emerald-500/5 px-4 py-3 rounded-2xl border border-emerald-500/10 shrink-0 text-[10px] font-bold text-emerald-800/80 dark:text-emerald-300/80">
-                      <div className="flex flex-col items-center gap-1 uppercase">
-                        <span className="opacity-60 font-semibold">1. SAC</span>
-                        <span className="bg-emerald-500/15 px-2 py-0.5 rounded text-emerald-600 dark:text-emerald-400 font-mono">PDF</span>
-                      </div>
-                      <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
-                      <div className="flex flex-col items-center gap-1 uppercase">
-                        <span className="opacity-60 font-semibold">2. Subtipo</span>
-                        <span className="bg-emerald-500/15 px-2 py-0.5 rounded max-w-[100px] truncate text-emerald-600 dark:text-emerald-400" title={pdfInfo.subtipo}>{pdfInfo.subtipo}</span>
-                      </div>
-                      <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1 animate-pulse" />
-                      <div className="flex flex-col items-center gap-1 uppercase">
-                        <span className="opacity-60 font-semibold">3. Destino</span>
-                        <span className="bg-emerald-500 text-white dark:bg-emerald-600 px-2 py-0.5 rounded shadow-xs font-black">DERIVAR</span>
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 flex items-center gap-2 self-end md:self-auto">
-                      <Button 
-                        onClick={() => onCatalogSearch(matchedCatalogItem.subtipo)}
-                        variant="outline" 
-                        size="sm" 
-                        className="text-xs bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-900 dark:bg-card dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-950/40 h-9 font-bold rounded-xl shadow-xs transition-all active:scale-95 duration-150 cursor-pointer"
-                      >
-                        <Edit className="w-3.5 h-3.5 mr-1.5" /> Modificar Regla
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-3xl bg-rose-500/10 dark:bg-rose-950/20 border border-rose-500/25 shadow-sm transition-all duration-300">
-                    <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
-                        <AlertCircle className="w-6 h-6 animate-pulse" />
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[9px] font-black uppercase tracking-widest text-rose-700 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">Protocolo Inactivo</span>
-                          {pdfInfo.areaDestino && (
-                            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-[9px] font-bold text-primary dark:text-primary-foreground">
-                              <MapPin className="w-2.5 h-2.5" /> {pdfInfo.areaDestino}
-                            </div>
-                          )}
-                        </div>
-                        <h4 className="text-sm font-black text-rose-950 dark:text-rose-300">ESTE RECLAMO NO SE DERIVA POR PAI</h4>
-                        <p className="text-xs text-rose-700/80 dark:text-rose-400/80 leading-relaxed">
-                          El subtipo <strong className="font-extrabold uppercase text-rose-950 dark:text-rose-200">{matchedCatalogItem.subtipo}</strong> está configurado en el catálogo como <span className="font-bold">NO DERIVAR</span>.
-                        </p>
-                        {matchedCatalogItem.comentarios && (
-                          <p className="text-[11px] mt-2 font-semibold bg-rose-500/5 dark:bg-rose-500/[0.02] px-3 py-2 rounded-xl border border-rose-500/10 text-rose-800 dark:text-rose-300 inline-block text-pretty">
-                            📌 <strong>Nota del Catálogo:</strong> {matchedCatalogItem.comentarios}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Flow Diagram */}
-                    <div className="hidden lg:flex items-center gap-2 bg-rose-500/5 px-4 py-3 rounded-2xl border border-rose-500/10 shrink-0 text-[10px] font-bold text-rose-800/80 dark:text-rose-300/80">
-                      <div className="flex flex-col items-center gap-1 uppercase">
-                        <span className="opacity-60 font-semibold">1. SAC</span>
-                        <span className="bg-rose-500/15 px-2 py-0.5 rounded text-rose-600 dark:text-rose-400 font-mono">PDF</span>
-                      </div>
-                      <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
-                      <div className="flex flex-col items-center gap-1 uppercase">
-                        <span className="opacity-60 font-semibold">2. Subtipo</span>
-                        <span className="bg-rose-500/15 px-2 py-0.5 rounded max-w-[100px] truncate text-rose-600 dark:text-rose-400" title={pdfInfo.subtipo}>{pdfInfo.subtipo}</span>
-                      </div>
-                      <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
-                      <div className="flex flex-col items-center gap-1 uppercase">
-                        <span className="opacity-60 font-semibold">3. Destino</span>
-                        <span className="bg-rose-600 text-white dark:bg-rose-700 px-2 py-0.5 rounded shadow-xs font-black">EXCLUIDO</span>
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 flex items-center gap-2 self-end md:self-auto">
-                      <Button 
-                        onClick={() => onCatalogSearch(matchedCatalogItem.subtipo)}
-                        variant="outline" 
-                        size="sm" 
-                        className="text-xs bg-white text-rose-800 border-rose-200 hover:bg-rose-50 hover:text-rose-900 dark:bg-card dark:text-rose-300 dark:border-rose-800 dark:hover:bg-rose-950/40 h-9 font-bold rounded-xl shadow-xs transition-all active:scale-95 duration-150 cursor-pointer"
-                      >
-                        <Edit className="w-3.5 h-3.5 mr-1.5" /> Modificar Regla
-                      </Button>
-                    </div>
-                  </div>
-                )
-              ) : (
-                <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-3xl bg-blue-500/10 dark:bg-blue-950/20 border border-blue-500/25 shadow-sm transition-all duration-300">
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
-                      <HelpCircle className="w-6 h-6 animate-pulse" />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">Sin Registro</span>
-                        {pdfInfo.areaDestino && (
-                          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-[9px] font-bold text-primary dark:text-primary-foreground">
-                            <MapPin className="w-2.5 h-2.5" /> {pdfInfo.areaDestino}
-                          </div>
-                        )}
-                      </div>
-                      <h4 className="text-sm font-black text-blue-950 dark:text-blue-300">SUBTIPO NO CATALOGADO</h4>
-                      <p className="text-xs text-blue-700/80 dark:text-blue-400/80 leading-relaxed">
-                        El subtipo <strong className="font-extrabold uppercase text-blue-950 dark:text-blue-200">{pdfInfo.subtipo || "Desconocido"}</strong> no está registrado en el catálogo PAI.
-                      </p>
-                    </div>
-                  </div>
-                  
-                  {/* Flow Diagram */}
-                  <div className="hidden lg:flex items-center gap-2 bg-blue-500/5 px-4 py-3 rounded-2xl border border-blue-500/10 shrink-0 text-[10px] font-bold text-blue-800/80 dark:text-blue-300/80">
-                    <div className="flex flex-col items-center gap-1 uppercase">
-                      <span className="opacity-60 font-semibold">1. SAC</span>
-                      <span className="bg-blue-500/15 px-2 py-0.5 rounded text-blue-600 dark:text-blue-400 font-mono">PDF</span>
-                    </div>
-                    <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
-                    <div className="flex flex-col items-center gap-1 uppercase">
-                      <span className="opacity-60 font-semibold">2. Subtipo</span>
-                      <span className="bg-blue-500/15 px-2 py-0.5 rounded max-w-[100px] truncate text-blue-600 dark:text-blue-400" title={pdfInfo.subtipo}>{pdfInfo.subtipo}</span>
-                    </div>
-                    <ArrowRight className="w-3.5 h-3.5 opacity-40 mx-1" />
-                    <div className="flex flex-col items-center gap-1 uppercase">
-                      <span className="opacity-60 font-semibold">3. Destino</span>
-                      <span className="bg-blue-500/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded font-bold">MANUAL</span>
-                    </div>
-                  </div>
-
-                  {pdfInfo.subtipo && (
-                    <div className="shrink-0 flex items-center gap-2 self-end md:self-auto">
-                      <Button 
-                        onClick={() => onAddSubtipoToCatalog(pdfInfo.subtipo, pdfInfo.tipo)}
-                        variant="outline" 
-                        size="sm" 
-                        className="text-xs bg-white text-blue-800 border-blue-200 hover:bg-blue-50 hover:text-blue-900 dark:bg-card dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-950/40 h-9 font-bold rounded-xl shadow-xs transition-all active:scale-95 duration-150 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5 mr-1" /> Registrar Subtipo
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </>
+          <div className={`py-3.5 px-6 rounded-2xl text-center space-y-0.5 border transition-all duration-300 msf-title-banner ${
+            matchedCatalogItem
+              ? matchedCatalogItem.derivar
+                ? 'bg-emerald-500/[0.06] border-emerald-500/20 text-emerald-950 dark:text-emerald-300 dark:bg-emerald-950/20 dark:border-emerald-500/10'
+                : 'bg-rose-500/[0.06] border-rose-500/20 text-rose-950 dark:text-rose-300 dark:bg-rose-950/20 dark:border-rose-500/10'
+              : 'bg-blue-500/[0.06] border-blue-500/20 text-blue-950 dark:text-blue-300 dark:bg-blue-950/20 dark:border-blue-500/10'
+          }`}>
+            <h2 className={`text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter leading-none ${
+              matchedCatalogItem
+                ? matchedCatalogItem.derivar
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-rose-600 dark:text-rose-400'
+                : 'text-blue-600 dark:text-blue-400'
+            }`}>
+              {matchedCatalogItem
+                ? matchedCatalogItem.derivar
+                  ? 'ESTE RECLAMO SE DERIVA POR PAI'
+                  : 'ESTE RECLAMO NO SE DERIVA POR PAI'
+                : 'SUBTIPO NO CATALOGADO'}
+            </h2>
+            <p className="text-[11px] sm:text-xs font-semibold text-muted-foreground/90 max-w-xl mx-auto leading-normal">
+              {matchedCatalogItem
+                ? matchedCatalogItem.derivar
+                  ? `El subtipo ${matchedCatalogItem.subtipo} está configurado para derivación automática.`
+                  : `El subtipo ${matchedCatalogItem.subtipo} no se debe derivar por este medio. Por favor, contactá a un supervisor.`
+                : `El subtipo ${pdfInfo.subtipo || "Desconocido"} no está registrado en el catálogo. Por favor, verificá con un supervisor.`}
+            </p>
+          </div>
         )}
       </div>
 
       {/* Split layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start preview-split-grid">
 
         {/* LEFT: PDF Preview */}
         <div className="rounded-2xl overflow-hidden border bg-muted flex flex-col shadow-sm">
@@ -699,7 +554,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
           </div>
 
           {/* Contacts list ScrollArea (placed right under Search) */}
-          <ScrollArea className="h-[220px] rounded-2xl border bg-card/60 dark:bg-card/20 shadow-inner">
+          <ScrollArea className="h-[220px] rounded-2xl border bg-card/60 dark:bg-card/20 shadow-inner contacts-scroll-area">
             <div className="p-2 space-y-1">
               {filtered.length === 0 ? (
                 <div className="py-12 text-center text-muted-foreground text-sm">
@@ -761,7 +616,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
           </ScrollArea>
 
           {/* Message Preview / Editor (placed under the contacts list) */}
-          <div className="rounded-xl border border-primary/10 bg-primary/[0.01] dark:bg-primary/[0.02] p-4 space-y-2.5 relative shadow-sm hover:shadow transition-all duration-300">
+          <div className="rounded-xl border border-primary/10 bg-primary/[0.01] dark:bg-primary/[0.02] p-4 space-y-2.5 relative shadow-sm hover:shadow transition-all duration-300 message-preview-container">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-primary dark:text-primary-foreground uppercase tracking-wider">
                 Mensaje de WhatsApp
@@ -777,10 +632,10 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
               <textarea
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
-                className="w-full min-h-[140px] text-xs font-medium bg-card text-foreground border rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-primary shadow-inner"
+                className="w-full min-h-[140px] text-xs font-medium bg-card text-foreground border rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-primary shadow-inner message-textarea"
               />
             ) : (
-              <div className="text-xs bg-card border rounded-lg p-2.5 font-medium whitespace-pre-wrap leading-relaxed text-muted-foreground min-h-[140px] overflow-y-auto max-h-[180px] shadow-inner">
+              <div className="text-xs bg-card border rounded-lg p-2.5 font-medium whitespace-pre-wrap leading-relaxed text-muted-foreground min-h-[140px] overflow-y-auto max-h-[180px] shadow-inner message-preview-box">
                 {messageText}
               </div>
             )}
@@ -822,7 +677,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
           </div>
 
           {/* Buttons */}
-          <div className="flex gap-3 pt-2">
+          <div className="flex gap-3 pt-2 send-btn-container">
             <Button variant="outline" onClick={onBack} disabled={sending} className="gap-2 h-12">
               <ChevronLeft className="w-4 h-4" /> Volver
             </Button>
@@ -1232,16 +1087,18 @@ function HistoryItem({ item }) {
   const isSuccess = item.status === 'success';
 
   return (
-    <div className="border border-border/85 bg-card hover:bg-accent/10 transition-all duration-150 text-sm font-medium">
+    <div className={`border transition-all duration-200 text-sm font-medium ${
+      isSuccess
+        ? 'border-emerald-500/15 dark:border-emerald-500/10 bg-emerald-500/[0.03] dark:bg-emerald-950/5 hover:bg-emerald-500/[0.06] dark:hover:bg-emerald-950/15'
+        : 'border-rose-500/15 dark:border-rose-500/10 bg-rose-500/[0.03] dark:bg-rose-950/5 hover:bg-rose-500/[0.06] dark:hover:bg-rose-950/15'
+    }`}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
-          <span className={`text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 border ${
-            isSuccess 
-              ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30' 
-              : 'bg-red-500/10 text-red-700 border-red-500/20 dark:text-red-400 dark:border-red-500/30'
-          }`}>
-            {isSuccess ? '[✓ ENVIADO]' : '[✗ FALLÓ]'}
-          </span>
+          {isSuccess ? (
+            <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+          )}
 
           <span className="font-bold text-foreground">
             Sol. Nro {item.solicitud_nro || 'S/N'}
@@ -1397,6 +1254,7 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
   const [sendingDetails, setSendingDetails] = useState(null);
+  const autoCloseTimeoutRef = useRef(null);
   
   const [shipments, setShipments] = useState([]);
   const [loadingShipments, setLoadingShipments] = useState(false);
@@ -1431,6 +1289,14 @@ export default function App() {
   };
 
   useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
+
+  useEffect(() => {
+    return () => {
+      if (autoCloseTimeoutRef.current) {
+        clearTimeout(autoCloseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, id: Date.now() });
@@ -1582,47 +1448,6 @@ export default function App() {
       const { error: uploadError } = await supabase.storage.from('pdfs').upload(uniqueName, file, { cacheControl: '3600', upsert: true });
       if (uploadError) throw uploadError;
       
-      // Auto-asociación del área destino detectada para todos los contactos seleccionados
-      if (areaDestino) {
-        setProgress(30);
-        setProgressText('Guardando áreas predeterminadas...');
-        setSendingDetails(prev => ({ ...prev, currentName: 'Base de Datos' }));
-        const cleanArea = areaDestino.trim();
-        for (const contact of recipients) {
-          if (contact.area_destino !== cleanArea) {
-            try {
-              await supabase.from('contacts').update({ area_destino: cleanArea }).eq('id', contact.id);
-            } catch (dbErr) {
-              console.error("Error al guardar area_destino:", dbErr);
-            }
-          }
-        }
-      }
-
-      // Auto-asociación de subtipos detectados para todos los contactos seleccionados
-      if (pdfInfo?.subtipo) {
-        setProgress(35);
-        setProgressText('Guardando subtipos predeterminados...');
-        setSendingDetails(prev => ({ ...prev, currentName: 'Base de Datos' }));
-        const cleanSub = pdfInfo.subtipo.trim().toUpperCase();
-        for (const contact of recipients) {
-          const currentSubtypes = contact.subtypes || [];
-          if (!currentSubtypes.includes(cleanSub)) {
-            try {
-              const updatedSubtypes = [...currentSubtypes, cleanSub];
-              await supabase.from('contacts').update({ subtypes: updatedSubtypes }).eq('id', contact.id);
-            } catch (dbErr) {
-              console.error("Error al guardar subtipo predeterminado:", dbErr);
-            }
-          }
-        }
-      }
-
-      // Recargar contactos si hubo cambios
-      if (areaDestino || pdfInfo?.subtipo) {
-        await loadContacts();
-      }
-
       setProgress(50);
       const results = [];
       for (const [i, contact] of recipients.entries()) {
@@ -1652,6 +1477,11 @@ export default function App() {
       }
       const ok = results.filter(r => r.ok).length;
       const fail = results.length - ok;
+      setSendingDetails(prev => ({
+        ...prev,
+        successCount: ok,
+        failCount: fail
+      }));
       setProgress(100);
       if (fail === 0) showToast(`¡Enviado a ${ok} destinatario${ok > 1 ? 's' : ''}! ✓`);
       else showToast(`${ok} enviado${ok !== 1 ? 's' : ''}, ${fail} falló`, 'error');
@@ -1659,14 +1489,10 @@ export default function App() {
       // Actualizar historial
       loadShipments();
 
-      setTimeout(() => {
-        setFile(null);
-        setStep(0);
-        setSending(false);
-        setProgress(0);
-        setProgressText('');
-        setSendingDetails(null);
-      }, 2500);
+      // Cerrar automáticamente tras 10 segundos
+      autoCloseTimeoutRef.current = setTimeout(() => {
+        handleCloseSending();
+      }, 10000);
     } catch (err) {
       showToast(err.message, 'error');
       setSending(false);
@@ -1675,24 +1501,38 @@ export default function App() {
     }
   };
 
+  const handleCloseSending = () => {
+    if (autoCloseTimeoutRef.current) {
+      clearTimeout(autoCloseTimeoutRef.current);
+      autoCloseTimeoutRef.current = null;
+    }
+    setFile(null);
+    setStep(0);
+    setSending(false);
+    setProgress(0);
+    setProgressText('');
+    setSendingDetails(null);
+  };
+
+
   return (
     <TooltipProvider>
       <div className={`min-h-screen flex flex-col transition-all duration-500
         ${derivationStatus === 'derivar' 
-          ? 'bg-gradient-to-br from-emerald-500/[0.04] via-background to-emerald-500/[0.02] dark:from-emerald-500/[0.02] dark:via-background dark:to-emerald-500/[0.01]' 
+          ? 'bg-gradient-to-br from-emerald-500/[0.12] via-background to-emerald-500/[0.04] dark:from-emerald-950/30 dark:via-background dark:to-emerald-950/10' 
           : derivationStatus === 'no-derivar' 
-            ? 'bg-gradient-to-br from-rose-500/[0.04] via-background to-rose-500/[0.02] dark:from-rose-500/[0.02] dark:via-background dark:to-rose-500/[0.01]' 
+            ? 'bg-gradient-to-br from-rose-500/[0.12] via-background to-rose-500/[0.04] dark:from-rose-950/30 dark:via-background dark:to-rose-950/10' 
             : 'bg-background'}`}>
 
         {/* ── Cabecera simplificada y adaptada para Google Sites ── */}
-        <div className="max-w-6xl mx-auto w-full px-4 pt-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 border-b-2 border-[#003b73]">
+        <div className="max-w-6xl mx-auto w-full px-4 pt-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 border-b-2 border-[#003b73] msf-header-container">
           <div className="flex flex-col gap-2">
             <h1 
-              className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tighter leading-[0.95] uppercase select-none transition-all duration-300 text-foreground"
+              className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tighter leading-[0.95] uppercase select-none transition-all duration-300 text-foreground msf-title"
             >
               Protocolo de Acción Inmediata
             </h1>
-            <p className="text-xs sm:text-sm font-extrabold text-muted-foreground uppercase tracking-widest pl-1 mt-1">
+            <p className="text-xs sm:text-sm font-extrabold text-muted-foreground uppercase tracking-widest pl-1 mt-1 msf-subtitle">
               Derivaciones · Atención Ciudadana
             </p>
           </div>
@@ -1820,17 +1660,19 @@ export default function App() {
                   return (
                     <div 
                       key={item.id} 
-                      className="border border-border/80 bg-card hover:bg-accent/10 transition-all duration-150 text-sm font-medium animate-fade-slide-up"
+                      className={`border transition-all duration-200 text-sm font-medium animate-fade-slide-up ${
+                        isSuccess
+                          ? 'border-emerald-500/15 dark:border-emerald-500/10 bg-emerald-500/[0.03] dark:bg-emerald-950/5 hover:bg-emerald-500/[0.06] dark:hover:bg-emerald-950/15'
+                          : 'border-rose-500/15 dark:border-rose-500/10 bg-rose-500/[0.03] dark:bg-rose-950/5 hover:bg-rose-500/[0.06] dark:hover:bg-rose-950/15'
+                      }`}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
-                          <span className={`text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 border ${
-                            isSuccess 
-                              ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30' 
-                              : 'bg-red-500/10 text-red-700 border-red-500/20 dark:text-red-400 dark:border-red-500/30'
-                          }`}>
-                            {isSuccess ? '[✓ ENVIADO]' : '[✗ FALLÓ]'}
-                          </span>
+                          {isSuccess ? (
+                            <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                          )}
 
                           <span className="font-bold text-foreground">
                             Sol. Nro {item.solicitud_nro || 'S/N'}
@@ -1932,58 +1774,80 @@ export default function App() {
 
         {/* ── Modal de Ayuda / Bienvenida ── */}
         <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
-          <DialogContent className="sm:max-w-lg backdrop-blur-xl bg-card/95 border-border/50 shadow-2xl">
-            <div className="flex flex-col items-center text-center px-2 py-4 space-y-6">
-              <img 
-                src="/logo_pai.jpg" 
-                alt="PAI Logo" 
-                className="w-28 h-28 object-contain"
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
-
-              <div className="space-y-2">
-                <h2 className="text-2xl font-black tracking-tight text-foreground">
+          <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto backdrop-blur-xl bg-card/95 border-border/50 shadow-2xl">
+            <div className="flex flex-col items-center px-2 py-4 space-y-6">
+              
+              <div className="text-center space-y-1.5">
+                <h2 className="text-2xl font-black tracking-tight text-foreground uppercase">
                   Bienvenido al PAI
                 </h2>
-                <p className="text-sm text-muted-foreground font-medium">
+                <p className="text-xs font-extrabold text-primary uppercase tracking-widest">
                   Protocolo de Acción Inmediata · Atención Ciudadana
                 </p>
               </div>
 
+              <p className="text-sm text-center text-muted-foreground max-w-xl leading-relaxed">
+                Este sistema permite derivar los reclamos del SAC de forma rápida y directa hacia las áreas municipales correspondientes, a través del teléfono de Protocolo por WhatsApp.
+              </p>
+
               <Separator />
 
-              <div className="space-y-4 text-left text-sm text-foreground/90 leading-relaxed">
-                <p>
-                  Este sistema permite derivar los reclamos del SAC de forma rápida y directa hacia las áreas municipales correspondientes, a través del teléfono de Protocolo por WhatsApp.
-                </p>
-
-                <div className="space-y-3 pl-1">
-                  <div className="flex items-start gap-3">
-                    <span className="text-primary font-black text-base leading-none mt-0.5">1.</span>
-                    <p><strong>Descargá el reclamo</strong> desde el SAC en formato PDF.</p>
+              {/* 3-Column horizontal steps layout */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full wizard-steps-grid">
+                
+                {/* Step 1 */}
+                <div className="flex flex-col items-center text-center space-y-3 p-5 rounded-2xl bg-muted/40 border border-border/50 transition-all hover:bg-muted/65 duration-200 wizard-step-card">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-black text-base shadow-xs">
+                    1
                   </div>
-                  <div className="flex items-start gap-3">
-                    <span className="text-primary font-black text-base leading-none mt-0.5">2.</span>
-                    <p><strong>Arrastrá o subí el PDF</strong> en esta página. El sistema detecta automáticamente el área destino y el tipo de reclamo.</p>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <span className="text-primary font-black text-base leading-none mt-0.5">3.</span>
-                    <p><strong>Confirmá el destinatario</strong> y presioná Enviar. El reclamo se envía de inmediato por WhatsApp desde el teléfono de Protocolo hacia el área municipal correspondiente.</p>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm text-foreground uppercase tracking-wide">1. Descargá el PDF</h3>
+                    <p className="text-xs text-muted-foreground leading-normal">
+                      Descargá el reclamo desde el SAC en formato PDF en tu computadora.
+                    </p>
                   </div>
                 </div>
 
-                <Separator />
+                {/* Step 2 */}
+                <div className="flex flex-col items-center text-center space-y-3 p-5 rounded-2xl bg-muted/40 border border-border/50 transition-all hover:bg-muted/65 duration-200 wizard-step-card">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-black text-base shadow-xs">
+                    2
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm text-foreground uppercase tracking-wide">2. Arrastrá el Archivo</h3>
+                    <p className="text-xs text-muted-foreground leading-normal">
+                      Subilo aquí. El sistema detecta el área y el subtipo del reclamo al instante.
+                    </p>
+                  </div>
+                </div>
 
-                <p className="text-muted-foreground text-xs leading-relaxed">
-                  Una vez enviado, por favor registrá en el SAC que el reclamo ya fue derivado por PAI.
+                {/* Step 3 */}
+                <div className="flex flex-col items-center text-center space-y-3 p-5 rounded-2xl bg-muted/40 border border-border/50 transition-all hover:bg-muted/65 duration-200 wizard-step-card">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-black text-base shadow-xs">
+                    3
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm text-foreground uppercase tracking-wide">3. Confirmá y Enviá</h3>
+                    <p className="text-xs text-muted-foreground leading-normal">
+                      Elegí el destinatario y presioná enviar. Se despacha directo por WhatsApp.
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+
+              <Separator />
+
+              <div className="text-center space-y-1">
+                <p className="text-[11px] text-muted-foreground leading-normal">
+                  📌 <strong>Nota del Protocolo:</strong> Una vez enviado, por favor registrá en el SAC que el reclamo ya fue derivado por PAI.
                 </p>
-
-                <p className="text-muted-foreground text-xs font-semibold">
+                <p className="text-[11px] text-muted-foreground/80 font-medium">
                   Gracias por colaborar en que los reclamos de los vecinos tengan atención inmediata.
                 </p>
               </div>
 
-              <Button onClick={() => setHelpOpen(false)} className="w-full h-11 font-bold text-sm rounded-xl mt-2">
+              <Button onClick={() => setHelpOpen(false)} className="w-full max-w-xs h-11 font-bold text-sm rounded-xl mt-2 cursor-pointer transition-all active:scale-95 duration-150">
                 Entendido
               </Button>
             </div>
@@ -1995,80 +1859,136 @@ export default function App() {
             <Card className="w-full max-w-md mx-4 border-2 border-primary/20 shadow-2xl bg-card/90 backdrop-blur-xl animate-scale-in overflow-hidden">
               <CardContent className="p-8 flex flex-col items-center text-center space-y-6">
                 
-                {/* Circular progress container */}
-                <div className="relative w-28 h-28 flex items-center justify-center">
-                  {/* SVG Ring Progress */}
-                  <svg className="w-full h-full transform -rotate-90">
-                    <circle
-                      cx="56"
-                      cy="56"
-                      r="48"
-                      className="stroke-muted fill-none"
-                      strokeWidth="8"
-                    />
-                    <circle
-                      cx="56"
-                      cy="56"
-                      r="48"
-                      className="stroke-primary fill-none transition-all duration-300 ease-out"
-                      strokeWidth="8"
-                      strokeDasharray={2 * Math.PI * 48}
-                      strokeDashoffset={2 * Math.PI * 48 * (1 - progress / 100)}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  {/* Inner text or icon */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    {progress === 100 ? (
-                      <CheckCircle className="w-12 h-12 text-emerald-500 animate-bounce" />
-                    ) : (
-                      <span className="text-2xl font-black text-foreground font-mono">{progress}%</span>
-                    )}
-                  </div>
-                </div>
+                {progress < 100 ? (
+                  // CARGANDO (EN PROCESO DE ENVÍO)
+                  <>
+                    <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-primary/10 text-primary animate-[pulse_2s_infinite]">
+                      <Loader2 className="w-12 h-12 animate-spin text-primary stroke-[2.5]" />
+                    </div>
 
-                <div className="space-y-2 w-full">
-                  <h3 className="text-xl font-bold tracking-tight text-foreground">
-                    {progress === 100 ? '¡Envío Completado!' : 'Enviando Reclamo...'}
-                  </h3>
-                  
-                  {/* Main status */}
-                  <p className="text-sm font-semibold text-primary animate-pulse">
-                    {progressText}
-                  </p>
+                    <div className="space-y-3 w-full">
+                      <h3 className="text-lg font-bold tracking-tight text-foreground uppercase">
+                        Enviando Reclamo
+                      </h3>
+                      
+                      {/* Main status */}
+                      <p className="text-sm font-semibold text-primary animate-pulse min-h-[20px]">
+                        {progressText}
+                      </p>
 
-                  {/* Detailed info */}
-                  {sendingDetails && (
-                    <div className="mt-4 p-4 rounded-xl bg-muted/50 border text-left text-xs space-y-2">
-                      {sendingDetails.solicitudNro && (
-                        <p className="text-foreground/90 font-medium">
-                          <span className="text-muted-foreground font-semibold">Solicitud:</span> Nro {sendingDetails.solicitudNro}
-                        </p>
-                      )}
-                      {sendingDetails.subtipo && (
-                        <p className="text-foreground/90 font-medium truncate">
-                          <span className="text-muted-foreground font-semibold">Subtipo:</span> {sendingDetails.subtipo}
-                        </p>
-                      )}
-                      {sendingDetails.total > 0 && (
-                        <div className="flex justify-between items-center pt-2 mt-1 border-t text-[11px]">
-                          <span className="text-muted-foreground">Destinatario actual:</span>
-                          <span className="font-bold text-foreground truncate max-w-[150px]">
-                            {sendingDetails.currentName || 'WhatsApp'}
-                          </span>
-                        </div>
-                      )}
-                      {sendingDetails.total > 0 && (
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-muted-foreground">Progreso de contactos:</span>
-                          <span className="font-bold text-foreground">
-                            {sendingDetails.current} / {sendingDetails.total}
-                          </span>
+                      {/* Detailed info */}
+                      {sendingDetails && (
+                        <div className="mt-4 p-4 rounded-xl bg-muted/40 border border-border/50 text-left text-xs space-y-2.5">
+                          {sendingDetails.solicitudNro && (
+                            <p className="text-foreground/90 font-medium">
+                              <span className="text-muted-foreground font-semibold">Solicitud:</span> Nro {sendingDetails.solicitudNro}
+                            </p>
+                          )}
+                          {sendingDetails.subtipo && (
+                            <p className="text-foreground/90 font-medium truncate">
+                              <span className="text-muted-foreground font-semibold">Subtipo:</span> {sendingDetails.subtipo}
+                            </p>
+                          )}
+                          {sendingDetails.total > 0 && (
+                            <div className="flex justify-between items-center pt-2 mt-1 border-t text-[11px]">
+                              <span className="text-muted-foreground">Destinatario actual:</span>
+                              <span className="font-bold text-foreground truncate max-w-[170px]">
+                                {sendingDetails.currentName || 'WhatsApp'}
+                              </span>
+                            </div>
+                          )}
+                          {sendingDetails.total > 0 && (
+                            <div className="flex justify-between items-center text-[11px]">
+                              <span className="text-muted-foreground">Progreso de contactos:</span>
+                              <span className="font-bold text-foreground">
+                                {sendingDetails.current} de {sendingDetails.total}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
+                  </>
+                ) : (
+                  // COMPLETADO (ÉXITO O PARCIAL / ERROR)
+                  <>
+                    {/* Visual de estado final */}
+                    {(() => {
+                      const successCount = sendingDetails?.successCount || 0;
+                      const failCount = sendingDetails?.failCount || 0;
+                      const totalCount = sendingDetails?.total || 0;
+
+                      if (failCount === 0) {
+                        return (
+                          <>
+                            <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 animate-scale-in">
+                              <CheckCircle className="w-14 h-14 stroke-[2]" />
+                            </div>
+                            <div className="space-y-1.5 w-full">
+                              <h3 className="text-xl font-extrabold tracking-tight text-foreground">
+                                ¡Envío Completado!
+                              </h3>
+                              <p className="text-xs text-muted-foreground leading-normal">
+                                El reclamo fue derivado exitosamente por WhatsApp a todos los destinatarios seleccionados.
+                              </p>
+                            </div>
+                          </>
+                        );
+                      } else if (successCount > 0) {
+                        return (
+                          <>
+                            <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 animate-scale-in">
+                              <AlertCircle className="w-14 h-14 stroke-[2]" />
+                            </div>
+                            <div className="space-y-1.5 w-full">
+                              <h3 className="text-xl font-extrabold tracking-tight text-foreground">
+                                Envío Parcial
+                              </h3>
+                              <p className="text-xs text-muted-foreground leading-normal">
+                                Se envió correctamente a {successCount} de {totalCount} destinatario(s). {failCount} fallaron.
+                              </p>
+                            </div>
+                          </>
+                        );
+                      } else {
+                        return (
+                          <>
+                            <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-destructive/10 text-destructive animate-scale-in">
+                              <X className="w-14 h-14 stroke-[2]" />
+                            </div>
+                            <div className="space-y-1.5 w-full">
+                              <h3 className="text-xl font-extrabold tracking-tight text-foreground">
+                                Error de Envío
+                              </h3>
+                              <p className="text-xs text-muted-foreground leading-normal text-destructive/90">
+                                No se pudo entregar la derivación a ningún destinatario. Por favor verificá los números o la conexión.
+                              </p>
+                            </div>
+                          </>
+                        );
+                      }
+                    })()}
+
+                    {/* Cartel de Recordatorio SAC */}
+                    {(sendingDetails?.successCount || 0) > 0 && (
+                      <div className="w-full p-5 rounded-xl bg-amber-500/10 dark:bg-amber-950/20 border-2 border-amber-500/20 dark:border-amber-900/30 text-center space-y-2 animate-fade-slide-up shadow-sm">
+                        <h4 className="text-sm font-extrabold text-amber-800 dark:text-amber-400 tracking-tight leading-snug uppercase">
+                          ⚠️ MARCA EN EL SAC QUE ESTE RECLAMO FUE DERIVADO
+                        </h4>
+                        <p className="text-[11px] text-muted-foreground leading-normal font-medium max-w-xs mx-auto">
+                          Recordá registrar que la derivación se realizó por PAI en el sistema SAC para evitar que se envíe dos veces.
+                        </p>
+                      </div>
+                    )}
+
+                    <Button 
+                      onClick={handleCloseSending} 
+                      className="w-full h-11 font-bold text-sm rounded-xl mt-4 cursor-pointer bg-primary hover:bg-primary/90 text-primary-foreground transition-all active:scale-95 duration-150 shadow-sm"
+                    >
+                      Entendido
+                    </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>
