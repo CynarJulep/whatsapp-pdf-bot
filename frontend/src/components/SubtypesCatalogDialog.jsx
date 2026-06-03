@@ -36,7 +36,9 @@ export default function SubtypesCatalogDialog({
   searchPrefill,
   onClearSearchPrefill,
   contacts = [],
-  onReloadContacts
+  onReloadContacts,
+  groups = [],
+  onReloadGroups
 }) {
   const [search, setSearch] = useState('');
   const [tipoFilter, setTipoFilter] = useState('all');
@@ -46,10 +48,10 @@ export default function SubtypesCatalogDialog({
   const [detailItem, setDetailItem] = useState(null);
   
   const [addOpen, setAddOpen] = useState(false);
-  const [addForm, setAddForm] = useState({ tipo: 'RECLAMO', categoria: '', subtipo: '', derivar: true, comentarios: '', contactId: 'none' });
+  const [addForm, setAddForm] = useState({ tipo: 'RECLAMO', categoria: '', subtipo: '', derivar: true, comentarios: '', contactId: 'none', groupId: 'none' });
   
   const [editId, setEditId] = useState(null);
-  const [editForm, setEditForm] = useState({ tipo: 'RECLAMO', categoria: '', subtipo: '', derivar: true, comentarios: '', contactId: 'none' });
+  const [editForm, setEditForm] = useState({ tipo: 'RECLAMO', categoria: '', subtipo: '', derivar: true, comentarios: '', contactId: 'none', groupId: 'none' });
   
   const [deleteId, setDeleteId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -65,7 +67,8 @@ export default function SubtypesCatalogDialog({
         subtipo: prefill.subtipo || '',
         derivar: prefill.derivar !== undefined ? prefill.derivar : true,
         comentarios: prefill.comentarios || '',
-        contactId: 'none'
+        contactId: 'none',
+        groupId: 'none'
       });
       setAddOpen(true);
       if (onClearPrefill) onClearPrefill();
@@ -101,6 +104,28 @@ export default function SubtypesCatalogDialog({
     if (!subtipo) return null;
     return subtypeToContactMap.get(subtipo.trim().toUpperCase()) || null;
   };
+
+  // Helper to map subtypes to groups for O(1) lookups
+  const subtypeToGroupMap = useMemo(() => {
+    const map = new Map();
+    if (!groups) return map;
+    groups.forEach(group => {
+      if (group.is_active && group.subtypes) {
+        group.subtypes.forEach(sub => {
+          if (sub) {
+            map.set(sub.trim().toUpperCase(), group);
+          }
+        });
+      }
+    });
+    return map;
+  }, [groups]);
+
+  // Helper to find group assigned to a subtype
+  const getAssignedGroup = (subtipo) => {
+    if (!subtipo) return null;
+    return subtypeToGroupMap.get(subtipo.trim().toUpperCase()) || null;
+  };
  
   // Filter logic
   const filtered = useMemo(() => {
@@ -109,13 +134,17 @@ export default function SubtypesCatalogDialog({
       // Find assigned contact to include contact name in search
       const assignedContact = getAssignedContact(item.subtipo);
       const contactName = assignedContact ? assignedContact.name.toLowerCase() : '';
+      
+      const assignedGroup = getAssignedGroup(item.subtipo);
+      const groupName = assignedGroup ? assignedGroup.name.toLowerCase() : '';
  
       const matchesSearch = !term ||
         (item.tipo || '').toLowerCase().includes(term) ||
         (item.categoria || '').toLowerCase().includes(term) ||
         (item.subtipo || '').toLowerCase().includes(term) ||
         (item.comentarios || '').toLowerCase().includes(term) ||
-        contactName.includes(term);
+        contactName.includes(term) ||
+        groupName.includes(term);
         
       const matchesTipo = tipoFilter === 'all' || item.tipo === tipoFilter;
       const matchesCategoria = categoriaFilter === 'all' || item.categoria === categoriaFilter;
@@ -237,6 +266,45 @@ export default function SubtypesCatalogDialog({
     }
   };
 
+  // Helper to handle group reassignment in database
+  const updateGroupAssignment = async (subtipo, newGroupId) => {
+    const cleanSub = subtipo.trim().toUpperCase();
+    
+    // Find who currently has this subtype
+    const oldGroups = groups.filter(g => g.subtypes && g.subtypes.some(s => s.trim().toUpperCase() === cleanSub));
+    
+    // Remove from old groups
+    for (const oldGroup of oldGroups) {
+      if (oldGroup.id.toString() !== newGroupId) {
+        const updatedSubtypes = (oldGroup.subtypes || []).filter(s => s.trim().toUpperCase() !== cleanSub);
+        await supabase
+          .from('whatsapp_groups')
+          .update({ subtypes: updatedSubtypes })
+          .eq('id', oldGroup.id);
+      }
+    }
+    
+    // Add to new group if selected
+    if (newGroupId && newGroupId !== 'none') {
+      const newGroup = groups.find(g => g.id.toString() === newGroupId);
+      if (newGroup) {
+        const currentSubtypes = newGroup.subtypes || [];
+        const isAlreadyAdded = currentSubtypes.some(s => s.trim().toUpperCase() === cleanSub);
+        if (!isAlreadyAdded) {
+          const updatedSubtypes = [...currentSubtypes, cleanSub];
+          await supabase
+            .from('whatsapp_groups')
+            .update({ subtypes: updatedSubtypes })
+            .eq('id', newGroup.id);
+        }
+      }
+    }
+
+    if (onReloadGroups) {
+      await onReloadGroups();
+    }
+  };
+
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!addForm.categoria.trim() || !addForm.subtipo.trim()) {
@@ -258,13 +326,18 @@ export default function SubtypesCatalogDialog({
         }]);
       if (error) throw error;
       
-      // 2. Assign contact if set
-      if (addForm.derivar && addForm.contactId !== 'none') {
-        await updateContactAssignment(newSubtipo, addForm.contactId);
+      // 2. Assign contact & group if set
+      if (addForm.derivar) {
+        if (addForm.contactId !== 'none') {
+          await updateContactAssignment(newSubtipo, addForm.contactId);
+        }
+        if (addForm.groupId !== 'none') {
+          await updateGroupAssignment(newSubtipo, addForm.groupId);
+        }
       }
 
       showToast('Subtipo agregado al catálogo ✓');
-      setAddForm({ tipo: 'RECLAMO', categoria: '', subtipo: '', derivar: true, comentarios: '', contactId: 'none' });
+      setAddForm({ tipo: 'RECLAMO', categoria: '', subtipo: '', derivar: true, comentarios: '', contactId: 'none', groupId: 'none' });
       setAddOpen(false);
       onReload();
     } catch (err) {
@@ -277,6 +350,7 @@ export default function SubtypesCatalogDialog({
   const startEdit = (item, e) => {
     if (e) e.stopPropagation();
     const assigned = getAssignedContact(item.subtipo);
+    const assignedG = getAssignedGroup(item.subtipo);
     setEditId(item.id);
     setEditForm({
       tipo: item.tipo,
@@ -284,7 +358,8 @@ export default function SubtypesCatalogDialog({
       subtipo: item.subtipo,
       derivar: item.derivar,
       comentarios: item.comentarios || '',
-      contactId: assigned ? assigned.id.toString() : 'none'
+      contactId: assigned ? assigned.id.toString() : 'none',
+      groupId: assignedG ? assignedG.id.toString() : 'none'
     });
   };
 
@@ -315,17 +390,20 @@ export default function SubtypesCatalogDialog({
         .eq('id', editId);
       if (error) throw error;
       
-      // 2. Handle contact assignment
+      // 2. Handle contact and group assignments
       if (editForm.derivar) {
         await updateContactAssignment(newSubtipo, editForm.contactId);
+        await updateGroupAssignment(newSubtipo, editForm.groupId);
       } else {
-        // If it's no longer derivar, remove assignment
+        // If it's no longer derivar, remove assignments
         await updateContactAssignment(newSubtipo, 'none');
+        await updateGroupAssignment(newSubtipo, 'none');
       }
 
       // If subtipo name changed, clean up old references
       if (oldSubtipo !== newSubtipo) {
         await updateContactAssignment(oldSubtipo, 'none');
+        await updateGroupAssignment(oldSubtipo, 'none');
       }
 
       showToast('Cambios guardados ✓');
@@ -348,8 +426,9 @@ export default function SubtypesCatalogDialog({
       if (error) throw error;
 
       if (item) {
-        // Remove contact assignments
+        // Remove contact and group assignments
         await updateContactAssignment(item.subtipo, 'none');
+        await updateGroupAssignment(item.subtipo, 'none');
       }
 
       showToast('Subtipo eliminado del catálogo');
@@ -493,6 +572,7 @@ export default function SubtypesCatalogDialog({
                   {itemsToShow.map(item => {
                     const isDerivar = item.derivar;
                     const assignedContact = getAssignedContact(item.subtipo);
+                    const assignedGroup = getAssignedGroup(item.subtipo);
                     const isEditing = editId === item.id;
                     
                     if (isEditing) {
@@ -539,20 +619,36 @@ export default function SubtypesCatalogDialog({
                               </div>
                             </div>
                             {editForm.derivar && (
-                              <div className="space-y-1 pt-1 border-t border-border/40">
-                                <Label className="text-[9px] font-bold text-muted-foreground uppercase">Contacto Asignado</Label>
-                                <Select value={editForm.contactId} onValueChange={(v) => setEditForm(p => ({ ...p, contactId: v }))}>
-                                  <SelectTrigger className="h-8 text-xs">
-                                    <SelectValue placeholder="Seleccionar contacto" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="none">Sin contacto asignado</SelectItem>
-                                    {contacts.filter(c => c.is_active).map(c => (
-                                      <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
+                              <>
+                                <div className="space-y-1 pt-1 border-t border-border/40">
+                                  <Label className="text-[9px] font-bold text-muted-foreground uppercase">Contacto Asignado</Label>
+                                  <Select value={editForm.contactId} onValueChange={(v) => setEditForm(p => ({ ...p, contactId: v }))}>
+                                    <SelectTrigger className="h-8 text-xs">
+                                      <SelectValue placeholder="Seleccionar contacto" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="none">Sin contacto asignado</SelectItem>
+                                      {contacts.filter(c => c.is_active).map(c => (
+                                        <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-1 pt-1">
+                                  <Label className="text-[9px] font-bold text-muted-foreground uppercase">Grupo Asignado</Label>
+                                  <Select value={editForm.groupId} onValueChange={(v) => setEditForm(p => ({ ...p, groupId: v }))}>
+                                    <SelectTrigger className="h-8 text-xs">
+                                      <SelectValue placeholder="Seleccionar grupo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="none">Sin grupo asignado</SelectItem>
+                                      {groups.filter(g => g.is_active).map(g => (
+                                        <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </>
                             )}
                           </div>
                           
@@ -635,15 +731,25 @@ export default function SubtypesCatalogDialog({
                               </div>
 
                               {isDerivar && (
-                                <div className="space-y-1">
-                                  <p className="text-[0.62rem] font-semibold tracking-wider text-muted-foreground uppercase">
-                                    Contacto Asignado
-                                  </p>
-                                  <p className="text-xs font-bold text-primary truncate flex items-center gap-1">
-                                    <User className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                                    {assignedContact ? assignedContact.name : 'Sin contacto'}
-                                  </p>
-                                </div>
+                                <>
+                                  <div className="space-y-1">
+                                    <p className="text-[0.62rem] font-semibold tracking-wider text-muted-foreground uppercase">
+                                      Contacto Asignado
+                                    </p>
+                                    <p className="text-xs font-bold text-primary truncate flex items-center gap-1">
+                                      <User className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                                      {assignedContact ? assignedContact.name : 'Sin contacto'}
+                                    </p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[0.62rem] font-semibold tracking-wider text-muted-foreground uppercase">
+                                      Grupo Asignado
+                                    </p>
+                                    <p className="text-xs font-bold text-primary truncate flex items-center gap-1">
+                                      👥 {assignedGroup ? assignedGroup.name : 'Sin grupo'}
+                                    </p>
+                                  </div>
+                                </>
                               )}
 
                               {item.comentarios && (
@@ -676,6 +782,7 @@ export default function SubtypesCatalogDialog({
                   {itemsToShow.map(item => {
                     const isEditing = editId === item.id;
                     const assignedContact = getAssignedContact(item.subtipo);
+                    const assignedGroup = getAssignedGroup(item.subtipo);
                     
                     return (
                       <div 
@@ -691,7 +798,7 @@ export default function SubtypesCatalogDialog({
                         )}
                       >
                         {isEditing ? (
-                          <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3 bg-muted/20 p-3 rounded-lg border border-primary/10">
+                          <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-3 bg-muted/20 p-3 rounded-lg border border-primary/10">
                             <div className="space-y-1">
                               <Label className="text-[10px] font-semibold text-muted-foreground">Tipo</Label>
                               <Select value={editForm.tipo} onValueChange={(v) => setEditForm(p => ({ ...p, tipo: v }))}>
@@ -736,7 +843,21 @@ export default function SubtypesCatalogDialog({
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="md:col-span-4 space-y-1">
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-semibold text-muted-foreground">Asignación de Grupo</Label>
+                              <Select value={editForm.groupId} onValueChange={(v) => setEditForm(p => ({ ...p, groupId: v }))} disabled={!editForm.derivar}>
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="Asignar grupo" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Sin grupo asignado</SelectItem>
+                                  {groups.filter(g => g.is_active).map(g => (
+                                    <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="md:col-span-5 space-y-1">
                               <Label className="text-[10px] font-semibold text-muted-foreground">Comentarios de Derivación</Label>
                               <Input 
                                 value={editForm.comentarios} 
@@ -744,7 +865,7 @@ export default function SubtypesCatalogDialog({
                                 className="h-8 text-xs" 
                               />
                             </div>
-                            <div className="md:col-span-4 flex items-center gap-2 pt-1">
+                            <div className="md:col-span-5 flex items-center gap-2 pt-1">
                               <Switch 
                                 checked={editForm.derivar} 
                                 onCheckedChange={(checked) => setEditForm(p => ({ ...p, derivar: checked }))}
@@ -782,13 +903,18 @@ export default function SubtypesCatalogDialog({
                               </p>
                             </div>
 
-                            {/* Contact & Comentarios */}
+                            {/* Contact, Group & Comentarios */}
                             <div className="md:col-span-5 min-w-0 space-y-1">
                               {item.derivar && (
-                                <p className="text-xs font-bold text-primary truncate flex items-center gap-1">
-                                  <User className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                                  {assignedContact ? assignedContact.name : 'Sin contacto'}
-                                </p>
+                                <div className="flex flex-col gap-0.5">
+                                  <p className="text-xs font-bold text-primary truncate flex items-center gap-1">
+                                    <User className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                                    {assignedContact ? assignedContact.name : 'Sin contacto'}
+                                  </p>
+                                  <p className="text-xs font-bold text-primary truncate flex items-center gap-1">
+                                    👥 {assignedGroup ? assignedGroup.name : 'Sin grupo'}
+                                  </p>
+                                </div>
                               )}
                               {item.comentarios ? (
                                 <p className="text-xs text-muted-foreground truncate">
@@ -888,41 +1014,80 @@ export default function SubtypesCatalogDialog({
               </DialogHeader>
 
               <div className="space-y-5 border-t border-border/40 pt-5">
-                {/* Contact Assignment Section */}
+                {/* Contact and Group Assignment Section */}
                 {detailItem.derivar && (
-                  <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 space-y-2">
-                    <p className="text-[10px] font-extrabold tracking-wider text-muted-foreground uppercase">
-                      Contacto de Envío Predeterminado
-                    </p>
-                    {getAssignedContact(detailItem.subtipo) ? (
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
-                          {getAssignedContact(detailItem.subtipo).name.slice(0,2).toUpperCase()}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Contact Assignment Card */}
+                    <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 space-y-2">
+                      <p className="text-[10px] font-extrabold tracking-wider text-muted-foreground uppercase">
+                        Contacto Predeterminado
+                      </p>
+                      {getAssignedContact(detailItem.subtipo) ? (
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
+                            {getAssignedContact(detailItem.subtipo).name.slice(0,2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-foreground truncate">
+                              {getAssignedContact(detailItem.subtipo).name}
+                            </p>
+                            <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate">
+                              +{getAssignedContact(detailItem.subtipo).phone_number}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-bold text-foreground">
-                            {getAssignedContact(detailItem.subtipo).name}
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-muted-foreground font-medium">
+                            Sin contacto asociado.
                           </p>
-                          <p className="text-xs text-muted-foreground font-mono mt-0.5">
-                            +{getAssignedContact(detailItem.subtipo).phone_number}
-                          </p>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-fit text-xs h-8"
+                            onClick={(e) => { startEdit(detailItem, e); setDetailItem(null); }}
+                          >
+                            Asignar ahora
+                          </Button>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        <p className="text-xs text-muted-foreground font-medium">
-                          No hay ningún contacto asociado a este subtipo actualmente.
-                        </p>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="w-fit text-xs h-8"
-                          onClick={(e) => { startEdit(detailItem, e); setDetailItem(null); }}
-                        >
-                          Asignar Contacto ahora
-                        </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
+
+                    {/* Group Assignment Card */}
+                    <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 space-y-2">
+                      <p className="text-[10px] font-extrabold tracking-wider text-muted-foreground uppercase">
+                        Grupo Predeterminado
+                      </p>
+                      {getAssignedGroup(detailItem.subtipo) ? (
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
+                            👥
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-foreground truncate">
+                              {getAssignedGroup(detailItem.subtipo).name}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground font-mono mt-0.5 truncate">
+                              {getAssignedGroup(detailItem.subtipo).group_jid}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-muted-foreground font-medium">
+                            Sin grupo asociado.
+                          </p>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-fit text-xs h-8"
+                            onClick={(e) => { startEdit(detailItem, e); setDetailItem(null); }}
+                          >
+                            Asignar ahora
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -1016,20 +1181,36 @@ export default function SubtypesCatalogDialog({
             </div>
             
             {addForm.derivar && (
-              <div className="space-y-1.5 pt-2 border-t border-border/40">
-                <Label className="text-xs font-semibold text-muted-foreground">Asignar Contacto Predeterminado</Label>
-                <Select value={addForm.contactId} onValueChange={(v) => setAddForm(p => ({ ...p, contactId: v }))}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Seleccionar contacto" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sin contacto asignado</SelectItem>
-                    {contacts.filter(c => c.is_active).map(c => (
-                      <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <>
+                <div className="space-y-1.5 pt-2 border-t border-border/40">
+                  <Label className="text-xs font-semibold text-muted-foreground">Asignar Contacto Predeterminado</Label>
+                  <Select value={addForm.contactId} onValueChange={(v) => setAddForm(p => ({ ...p, contactId: v }))}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Seleccionar contacto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin contacto asignado</SelectItem>
+                      {contacts.filter(c => c.is_active).map(c => (
+                        <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5 pt-2">
+                  <Label className="text-xs font-semibold text-muted-foreground">Asignar Grupo Predeterminado</Label>
+                  <Select value={addForm.groupId} onValueChange={(v) => setAddForm(p => ({ ...p, groupId: v }))}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Seleccionar grupo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin grupo asignado</SelectItem>
+                      {groups.filter(g => g.is_active).map(g => (
+                        <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
             )}
             
             <div className="flex gap-3 pt-2">

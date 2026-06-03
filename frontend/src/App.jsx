@@ -356,7 +356,7 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
 }
 
 // ── Step 1: Preview + Contact Picker (split layout) ────────────────────────────
-function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
+function PreviewAndPick({ file, contacts, groups = [], subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
   const [extracting, setExtracting] = useState(true);
@@ -367,8 +367,16 @@ function PreviewAndPick({ file, contacts, subtypesCatalog, onAddSubtipoToCatalog
   const dropdownRef = useRef(null);
 
   const activeContacts = contacts.filter(c => c.is_active);
+  const activeGroups = groups.filter(g => g.is_active);
 
-  // Extract PDF info and auto-select matching contact
+  const mergedRecipients = useMemo(() => {
+    return [
+      ...activeContacts.map(c => ({ ...c, isGroup: false, recipientKey: `c_${c.id}` })),
+      ...activeGroups.map(g => ({ ...g, isGroup: true, recipientKey: `g_${g.id}` }))
+    ];
+  }, [activeContacts, activeGroups]);
+
+  // Extract PDF info and auto-select matching contact / group
   useEffect(() => {
     setExtracting(true);
     extractPdfInfo(file).then((info) => {
@@ -402,17 +410,25 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
           item => item.subtipo.trim().toLowerCase() === cleanSub
         );
         if (matchedItem && matchedItem.derivar) {
+          // Preselect contact
           const match = activeContacts.find(c => 
             c.subtypes && c.subtypes.some(s => s.trim().toLowerCase() === cleanSub)
           );
           if (match) {
-            newSelected.add(match.id);
+            newSelected.add(`c_${match.id}`);
+          }
+          // Preselect group
+          const groupMatch = activeGroups.find(g =>
+            g.subtypes && g.subtypes.some(s => s.trim().toLowerCase() === cleanSub)
+          );
+          if (groupMatch && newSelected.size < MAX_RECIPIENTS) {
+            newSelected.add(`g_${groupMatch.id}`);
           }
         }
       }
       setSelected(newSelected);
     });
-  }, [file, subtypesCatalog, contacts]);
+  }, [file, subtypesCatalog, contacts, groups]);
 
   const matchedCatalogItem = useMemo(() => {
     if (!pdfInfo.subtipo || !subtypesCatalog || subtypesCatalog.length === 0) return null;
@@ -441,31 +457,36 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim();
     if (term === '') {
-      return activeContacts;
+      return mergedRecipients;
     }
-    return activeContacts.filter(c => 
-      c.name.toLowerCase().includes(term) ||
-      (c.description || '').toLowerCase().includes(term) ||
-      (c.area_destino || '').toLowerCase().includes(term) ||
-      (c.subtypes || []).some(s => s.toLowerCase().includes(term))
+    return mergedRecipients.filter(r => 
+      r.name.toLowerCase().includes(term) ||
+      (r.description || '').toLowerCase().includes(term) ||
+      (!r.isGroup && r.area_destino && r.area_destino.toLowerCase().includes(term)) ||
+      (r.subtypes || []).some(s => s.toLowerCase().includes(term))
     );
-  }, [activeContacts, search]);
+  }, [mergedRecipients, search]);
 
-  const toggle = (id) => {
+  const toggle = (key) => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
         if (next.size >= MAX_RECIPIENTS) return prev; // max 3
-        next.add(id);
+        next.add(key);
       }
       return next;
     });
   };
 
   const handleSend = () => {
-    const recipients = contacts.filter(c => selected.has(c.id));
+    const selectedContacts = contacts.filter(c => selected.has(`c_${c.id}`));
+    const selectedGroups = groups.filter(g => selected.has(`g_${g.id}`));
+    const recipients = [
+      ...selectedContacts.map(c => ({ ...c, isGroup: false })),
+      ...selectedGroups.map(g => ({ ...g, isGroup: true }))
+    ];
     onSend(recipients, pdfInfo, messageText);
   };
 
@@ -511,7 +532,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     });
   };
 
-  const selectedRecipients = contacts.filter(c => selected.has(c.id));
+  const selectedRecipients = mergedRecipients.filter(r => selected.has(r.recipientKey));
 
   return (
     <div className="animate-fade-slide-up w-full">
@@ -637,16 +658,16 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                     <div className="py-8 text-center text-muted-foreground text-xs">
                       Sin destinatarios que coincidan
                     </div>
-                  ) : filtered.map(c => {
-                    const isSelected = selected.has(c.id);
+                  ) : filtered.map(r => {
+                    const isSelected = selected.has(r.recipientKey);
                     const isAutoDetected = pdfInfo.subtipo &&
-                      c.subtypes && c.subtypes.some(s => s.trim().toLowerCase() === pdfInfo.subtipo.trim().toLowerCase());
+                      r.subtypes && r.subtypes.some(s => s.trim().toLowerCase() === pdfInfo.subtipo.trim().toLowerCase());
                     const isDisabled = !isSelected && selected.size >= MAX_RECIPIENTS;
 
                     return (
                       <div
-                        key={c.id}
-                        onClick={() => !isDisabled && toggle(c.id)}
+                        key={r.recipientKey}
+                        onClick={() => !isDisabled && toggle(r.recipientKey)}
                         className={`contact-card flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs
                           ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
                           ${isSelected
@@ -657,31 +678,40 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                           }`}
                       >
                         <Checkbox checked={isSelected} disabled={isDisabled}
-                          onCheckedChange={() => !isDisabled && toggle(c.id)}
+                          onCheckedChange={() => !isDisabled && toggle(r.recipientKey)}
                           onClick={(e) => e.stopPropagation()} className="flex-shrink-0" />
                         <Avatar className="flex-shrink-0 w-8 h-8">
                           <AvatarFallback className={`text-[10px] font-bold
                             ${isSelected ? 'bg-primary text-primary-foreground' :
                               isAutoDetected ? 'bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200' :
                               'bg-muted text-muted-foreground'}`}>
-                            {initials(c.name)}
+                            {r.isGroup ? '👥' : initials(r.name)}
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-semibold text-foreground truncate">{c.name}</p>
+                            <p className="text-xs font-semibold text-foreground truncate">{r.name}</p>
+                            {r.isGroup ? (
+                              <Badge variant="outline" className="text-[8px] h-3.5 px-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 border-0">
+                                Grupo
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[8px] h-3.5 px-1 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 border-0">
+                                Contacto
+                              </Badge>
+                            )}
                             {isAutoDetected && (
                               <Badge className="text-[8px] h-3.5 px-1 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 border-0">
                                 <Zap className="w-2 h-2 mr-0.5" />Auto
                               </Badge>
                             )}
                           </div>
-                          {c.description && (
-                            <p className="text-[10px] text-muted-foreground truncate mt-0.5">{c.description}</p>
+                          {r.description && (
+                            <p className="text-[10px] text-muted-foreground truncate mt-0.5">{r.description}</p>
                           )}
-                          {c.area_destino && (
+                          {!r.isGroup && r.area_destino && (
                             <p className="text-[9px] text-primary/70 truncate mt-0.5 flex items-center gap-1">
-                              <MapPin className="w-2 h-2" />{c.area_destino}
+                              <MapPin className="w-2 h-2" />{r.area_destino}
                             </p>
                           )}
                         </div>
@@ -743,17 +773,17 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
               <div className="flex flex-wrap gap-2 p-2.5 bg-muted/30 border rounded-xl shadow-inner min-h-[50px] items-center">
                 {selectedRecipients.map(recipient => (
                   <div 
-                    key={recipient.id} 
+                    key={recipient.recipientKey} 
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-xs font-semibold text-primary dark:text-primary-foreground animate-scale-in"
                   >
                     <Avatar className="w-5 h-5">
                       <AvatarFallback className="text-[9px] bg-primary text-primary-foreground font-black">
-                        {initials(recipient.name)}
+                        {recipient.isGroup ? '👥' : initials(recipient.name)}
                       </AvatarFallback>
                     </Avatar>
                     <span className="truncate max-w-[120px]">{recipient.name}</span>
                     <button 
-                      onClick={() => toggle(recipient.id)} 
+                      onClick={() => toggle(recipient.recipientKey)} 
                       className="ml-1 opacity-60 hover:opacity-100 transition-opacity p-0.5 rounded-full hover:bg-primary/20"
                     >
                       <X className="w-3.5 h-3.5 text-foreground/75" />
@@ -1079,8 +1109,284 @@ function ContactsTab({ contacts, onReload, showToast }) {
   );
 }
 
+// ── Groups Tab ─────────────────────────────────────────────────────────────────
+function GroupsTab({ groups, onReload, showToast, backendUrl, botStatus }) {
+  const [search, setSearch] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [deleteId, setDeleteId] = useState(null);
+  const [form, setForm] = useState({ name: '', group_jid: '', description: '', subtypes: '' });
+  const [editForm, setEditForm] = useState({ name: '', group_jid: '', description: '', subtypes: '' });
+  const [saving, setSaving] = useState(false);
+  const [waGroups, setWaGroups] = useState([]);
+  const [loadingWa, setLoadingWa] = useState(false);
+
+  const filtered = search.trim() === '' ? groups : groups.filter(g =>
+    g.name.toLowerCase().includes(search.toLowerCase()) ||
+    (g.description || '').toLowerCase().includes(search.toLowerCase()) ||
+    (g.group_jid || '').toLowerCase().includes(search.toLowerCase()) ||
+    (g.subtypes || []).some(s => s.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const loadWaGroups = async () => {
+    if (!botStatus.connected) {
+      showToast('Conectá WhatsApp primero (pestaña Estado)', 'error');
+      return;
+    }
+    setLoadingWa(true);
+    try {
+      const res = await fetch(`${backendUrl}/groups`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Error al listar grupos');
+      setWaGroups(data.groups || []);
+      if ((data.groups || []).length === 0) showToast('No se encontraron grupos en WhatsApp', 'error');
+    } catch (err) {
+      showToast(err.message || 'Error al cargar grupos de WhatsApp', 'error');
+    } finally {
+      setLoadingWa(false);
+    }
+  };
+
+  const applyWaGroup = (jid) => {
+    const found = waGroups.find(g => g.id === jid);
+    if (found) {
+      setForm(p => ({ ...p, group_jid: found.id, name: p.name.trim() ? p.name : found.name }));
+    }
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    const jid = form.group_jid.trim();
+    if (!form.name.trim() || !jid.includes('@g.us')) {
+      showToast('Completá nombre y JID de grupo (formato …@g.us)', 'error');
+      return;
+    }
+    setSaving(true);
+    const parsedSubtypes = form.subtypes
+      ? form.subtypes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+      : [];
+    try {
+      const { error } = await supabase.from('whatsapp_groups').insert([{
+        name: form.name.trim(),
+        group_jid: jid,
+        description: form.description.trim() || null,
+        subtypes: parsedSubtypes,
+        is_active: true,
+      }]);
+      if (error) throw error;
+      showToast('Grupo agregado ✓');
+      setForm({ name: '', group_jid: '', description: '', subtypes: '' });
+      setAddOpen(false);
+      onReload();
+    } catch (err) {
+      showToast(err.message.includes('23505') ? 'Ese grupo ya está registrado' : err.message, 'error');
+    } finally { setSaving(false); }
+  };
+
+  const handleSaveEdit = async () => {
+    const jid = editForm.group_jid.trim();
+    if (!editForm.name.trim() || !jid.includes('@g.us')) {
+      showToast('Nombre y JID de grupo son obligatorios', 'error');
+      return;
+    }
+    setSaving(true);
+    const parsedSubtypes = editForm.subtypes
+      ? editForm.subtypes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+      : [];
+    try {
+      const { error } = await supabase.from('whatsapp_groups').update({
+        name: editForm.name.trim(),
+        group_jid: jid,
+        description: editForm.description?.trim() || null,
+        subtypes: parsedSubtypes,
+      }).eq('id', editId);
+      if (error) throw error;
+      showToast('Cambios guardados ✓');
+      setEditId(null);
+      onReload();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally { setSaving(false); }
+  };
+
+  const handleDelete = async () => {
+    try {
+      const { error } = await supabase.from('whatsapp_groups').delete().eq('id', deleteId);
+      if (error) throw error;
+      showToast('Grupo eliminado');
+      setDeleteId(null);
+      onReload();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const handleToggleActive = async (id, current) => {
+    await supabase.from('whatsapp_groups').update({ is_active: !current }).eq('id', id);
+    onReload();
+  };
+
+  const startEdit = (g) => {
+    setEditId(g.id);
+    setEditForm({
+      name: g.name,
+      group_jid: g.group_jid,
+      description: g.description || '',
+      subtypes: (g.subtypes || []).join(', '),
+    });
+  };
+
+  return (
+    <div className="animate-fade-slide-up space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[160px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Buscar grupo..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 h-10 text-sm" />
+        </div>
+        <Button onClick={() => setAddOpen(true)} size="sm" className="h-10 gap-1.5 text-sm">
+          <Plus className="w-4 h-4" /> Agregar grupo
+        </Button>
+      </div>
+
+      <ScrollArea className="h-[min(520px,60vh)] rounded-2xl border bg-card">
+        <div className="p-3 space-y-1.5">
+          {filtered.length === 0 && (
+            <div className="py-16 text-center text-muted-foreground text-sm">
+              {groups.length === 0
+                ? 'No hay grupos configurados. Agregá uno para derivar PDFs a chats grupales.'
+                : 'Sin resultados para la búsqueda'}
+            </div>
+          )}
+          {filtered.map(g => {
+            const isEditing = editId === g.id;
+            return (
+              <div key={g.id} className={`contact-card group flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-all
+                ${isEditing ? 'border-primary/30 bg-primary/5' : 'border-transparent hover:border-border hover:bg-muted/40'}`}>
+                <Avatar className="flex-shrink-0 w-10 h-10">
+                  <AvatarFallback className={`text-sm font-bold ${g.is_active ? 'bg-blue-500/10 text-blue-600' : 'bg-muted text-muted-foreground'}`}>
+                    👥
+                  </AvatarFallback>
+                </Avatar>
+                {isEditing ? (
+                  <div className="flex-1 grid grid-cols-1 gap-2 bg-muted/30 p-3 rounded-lg border border-primary/10">
+                    <Input value={editForm.name} onChange={(e) => setEditForm(p => ({ ...p, name: e.target.value }))} placeholder="Nombre" className="h-8 text-sm" />
+                    <Input value={editForm.group_jid} onChange={(e) => setEditForm(p => ({ ...p, group_jid: e.target.value }))} placeholder="JID …@g.us" className="h-8 text-xs font-mono" />
+                    <Input value={editForm.subtypes} onChange={(e) => setEditForm(p => ({ ...p, subtypes: e.target.value }))} placeholder="Subtipos (coma)" className="h-8 text-xs font-mono uppercase" />
+                    <Input value={editForm.description} onChange={(e) => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="Descripción" className="h-8 text-sm" />
+                  </div>
+                ) : (
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold truncate">{g.name}</p>
+                      {!g.is_active && <Badge variant="outline" className="text-[9px] h-4 py-0">Inactivo</Badge>}
+                    </div>
+                    {g.description && <p className="text-xs text-muted-foreground mt-0.5">{g.description}</p>}
+                    <p className="text-[10px] font-mono text-muted-foreground/70 truncate mt-1">{g.group_jid}</p>
+                    {g.subtypes?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {g.subtypes.map(sub => (
+                          <Badge key={sub} variant="outline" className="text-[9px] font-bold px-2 py-0.5">{sub}</Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {isEditing ? (
+                    <>
+                      <Button variant="ghost" size="icon" onClick={handleSaveEdit} disabled={saving} className="h-8 w-8 text-emerald-600">
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => setEditId(null)} className="h-8 w-8"><X className="w-4 h-4" /></Button>
+                    </>
+                  ) : (
+                    <>
+                      <Switch checked={g.is_active} onCheckedChange={() => handleToggleActive(g.id, g.is_active)} className="scale-75" />
+                      <Button variant="ghost" size="icon" onClick={() => startEdit(g)} className="h-8 w-8 opacity-0 group-hover:opacity-100"><Edit className="w-4 h-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteId(g.id)} className="h-8 w-8 opacity-0 group-hover:opacity-100 text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </ScrollArea>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black">Nuevo grupo de derivación</DialogTitle>
+            <DialogDescription className="text-xs">
+              El bot debe estar en el grupo de WhatsApp. Podés cargar la lista desde la cuenta conectada.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreate} className="space-y-4 mt-2">
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={loadWaGroups} disabled={loadingWa || !botStatus.connected} className="gap-2">
+                {loadingWa ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Cargar desde WhatsApp
+              </Button>
+            </div>
+            {waGroups.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground">Grupo en WhatsApp</Label>
+                <select
+                  className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+                  value={form.group_jid}
+                  onChange={(e) => applyWaGroup(e.target.value)}
+                >
+                  <option value="">Seleccionar grupo...</option>
+                  {waGroups.map(wg => (
+                    <option key={wg.id} value={wg.id}>{wg.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Nombre *</Label>
+              <Input value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Ej. Obras Públicas - Derivaciones" className="h-10" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">JID del grupo *</Label>
+              <Input value={form.group_jid} onChange={(e) => setForm(p => ({ ...p, group_jid: e.target.value }))} placeholder="120363…@g.us" className="h-10 font-mono text-xs" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Subtipos (autoselección, separados por coma)</Label>
+              <Input value={form.subtypes} onChange={(e) => setForm(p => ({ ...p, subtypes: e.target.value }))} className="h-10 font-mono text-xs uppercase" placeholder="BACHES, ALUMBRADO" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Descripción (opcional)</Label>
+              <Input value={form.description} onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))} className="h-10" />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button type="button" variant="outline" onClick={() => setAddOpen(false)} className="flex-1">Cancelar</Button>
+              <Button type="submit" disabled={saving} className="flex-1 gap-2">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Agregar
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminás este grupo?</AlertDialogTitle>
+            <AlertDialogDescription>Dejará de aparecer como destinatario en las derivaciones.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 // ── Status Tab ─────────────────────────────────────────────────────────────────
-function StatusTab({ botStatus, contacts, onDisconnect, disconnecting }) {
+function StatusTab({ botStatus, contacts, onDisconnect, onReconnect, disconnecting, reconnecting }) {
   return (
     <div className="animate-fade-slide-up space-y-4">
       {(botStatus.connected || botStatus.offline) && (
@@ -1158,6 +1464,35 @@ function StatusTab({ botStatus, contacts, onDisconnect, disconnecting }) {
                 <p className="text-sm text-muted-foreground">
                   {botStatus.connecting ? 'Conectando con WhatsApp...' : 'Generando código QR...'}
                 </p>
+                {!botStatus.connecting && (
+                  <p className="text-xs text-muted-foreground max-w-xs text-center">
+                    {botStatus.stalled
+                      ? 'La sesión quedó colgada en el servidor. Probá reiniciar la conexión.'
+                      : 'Si tarda más de un minuto, reiniciá la conexión.'}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onReconnect}
+                    disabled={reconnecting || disconnecting || botStatus.connecting}
+                    className="gap-2"
+                  >
+                    {reconnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    Reiniciar conexión
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={onDisconnect}
+                    disabled={disconnecting || reconnecting}
+                    className="gap-2"
+                  >
+                    {disconnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    Borrar sesión y nuevo QR
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
@@ -1408,7 +1743,9 @@ export default function App() {
   const [configTab, setConfigTab] = useState('contacts');
   const [contacts, setContacts] = useState([]);
   const [loadingContacts, setLoadingContacts] = useState(true);
-  const [botStatus, setBotStatus] = useState({ connected: false, connecting: false, checking: true, qr: null, offline: false, phoneUser: null });
+  const [groups, setGroups] = useState([]);
+  const [loadingGroups, setLoadingGroups] = useState(true);
+  const [botStatus, setBotStatus] = useState({ connected: false, connecting: false, checking: true, qr: null, offline: false, phoneUser: null, stalled: false });
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState('send');
   const [step, setStep] = useState(0);
@@ -1424,6 +1761,7 @@ export default function App() {
   const [shipments, setShipments] = useState([]);
   const [loadingShipments, setLoadingShipments] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
 
    const [historyOpen, setHistoryOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
@@ -1474,6 +1812,18 @@ export default function App() {
       setContacts(data || []);
     } catch { showToast('Error cargando contactos', 'error'); }
     finally { setLoadingContacts(false); }
+  }, [showToast]);
+
+  const loadGroups = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.from('whatsapp_groups').select('*').order('name');
+      if (error) throw error;
+      setGroups(data || []);
+    } catch {
+      showToast('Error cargando grupos (¿ejecutaste la migración en Supabase?)', 'error');
+    } finally {
+      setLoadingGroups(false);
+    }
   }, [showToast]);
 
   const loadShipments = useCallback(async () => {
@@ -1528,6 +1878,19 @@ export default function App() {
     }
   }, [historyOpen, loadShipments]);
 
+  const handleReconnect = async () => {
+    setReconnecting(true);
+    try {
+      const res = await fetch(`${backendUrl}/reconnect`, { method: 'POST' });
+      if (!res.ok) throw new Error();
+      showToast('Reiniciando conexión con WhatsApp...');
+    } catch {
+      showToast('Error al reiniciar la conexión', 'error');
+    } finally {
+      setReconnecting(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
@@ -1543,9 +1906,10 @@ export default function App() {
 
   useEffect(() => { 
     loadContacts(); 
+    loadGroups();
     loadShipments();
     loadCatalog();
-  }, [loadContacts, loadShipments, loadCatalog]);
+  }, [loadContacts, loadGroups, loadShipments, loadCatalog]);
 
   useEffect(() => {
     let failedCount = 0;
@@ -1561,12 +1925,13 @@ export default function App() {
           checking: false,
           qr: data.qr || null,
           offline: false,
-          phoneUser: data.phone_user || null
+          phoneUser: data.phone_user || null,
+          stalled: !!data.stalled || (!data.connected && !data.connecting && !data.qr)
         });
       } catch {
         failedCount++;
         if (failedCount >= 3) {
-          setBotStatus({ connected: false, connecting: false, checking: false, qr: null, offline: true, phoneUser: null });
+          setBotStatus({ connected: false, connecting: false, checking: false, qr: null, offline: true, phoneUser: null, stalled: false });
         }
       }
     };
@@ -1671,25 +2036,37 @@ export default function App() {
       
       setProgress(50);
       const results = [];
-      for (const [i, contact] of recipients.entries()) {
-        setProgressText(`Enviando a ${contact.name}... (${i + 1}/${recipients.length})`);
+      for (const [i, recipient] of recipients.entries()) {
+        setProgressText(`Enviando a ${recipient.name}... (${i + 1}/${recipients.length})`);
         setSendingDetails(prev => ({
           ...prev,
           current: i + 1,
-          currentName: contact.name
+          currentName: recipient.name
         }));
         try {
+          const payload = recipient.isGroup
+            ? {
+                fileName: uniqueName,
+                groupJid: recipient.group_jid,
+                isGroup: true,
+                caption: messageText,
+                contactName: recipient.name,
+                solicitudNro: pdfInfo?.solicitudNro,
+                subtipo: pdfInfo?.subtipo,
+                displayName: displayName
+              }
+            : {
+                fileName: uniqueName,
+                phoneNumber: recipient.phone_number,
+                caption: messageText,
+                contactName: recipient.name,
+                solicitudNro: pdfInfo?.solicitudNro,
+                subtipo: pdfInfo?.subtipo,
+                displayName: displayName
+              };
           const res = await fetch(`${backendUrl}/send-pdf`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              fileName: uniqueName,
-              phoneNumber: contact.phone_number,
-              caption: messageText,
-              contactName: contact.name,
-              solicitudNro: pdfInfo?.solicitudNro,
-              subtipo: pdfInfo?.subtipo,
-              displayName: displayName
-            }),
+            body: JSON.stringify(payload),
           });
           const result = await res.json();
           results.push({ ok: res.ok && result.success });
@@ -1868,6 +2245,7 @@ export default function App() {
               <PreviewAndPick
                 file={file} 
                 contacts={loadingContacts ? [] : contacts}
+                groups={loadingGroups ? [] : groups}
                 subtypesCatalog={subtypesCatalog}
                 onAddSubtipoToCatalog={handleAddSubtipoToCatalog}
                 onBack={() => {
@@ -1951,12 +2329,15 @@ export default function App() {
               <DialogDescription>Gestioná los destinatarios del protocolo y el estado de la conexión a WhatsApp.</DialogDescription>
             </DialogHeader>
             <Tabs value={configTab} onValueChange={setConfigTab} className="w-full mt-2">
-              <TabsList className="grid grid-cols-2 max-w-sm mx-auto mb-6">
+              <TabsList className="grid grid-cols-3 max-w-lg mx-auto mb-6">
                 <TabsTrigger value="contacts" className="gap-2 text-sm">
                   <Users className="w-4 h-4" /> Contactos
                 </TabsTrigger>
+                <TabsTrigger value="groups" className="gap-2 text-sm">
+                  <Users className="w-4 h-4 opacity-60" /> Grupos
+                </TabsTrigger>
                 <TabsTrigger value="status" className="gap-2 text-sm">
-                  <Settings className="w-4 h-4" /> Estado de WhatsApp
+                  <Settings className="w-4 h-4" /> WhatsApp
                 </TabsTrigger>
               </TabsList>
 
@@ -1968,8 +2349,22 @@ export default function App() {
                 )}
               </TabsContent>
 
+              <TabsContent value="groups" className="outline-none">
+                {loadingGroups ? (
+                  <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}</div>
+                ) : (
+                  <GroupsTab
+                    groups={groups}
+                    onReload={loadGroups}
+                    showToast={showToast}
+                    backendUrl={backendUrl}
+                    botStatus={botStatus}
+                  />
+                )}
+              </TabsContent>
+
               <TabsContent value="status" className="outline-none">
-                <StatusTab botStatus={botStatus} contacts={contacts} onDisconnect={handleDisconnect} disconnecting={disconnecting} />
+                <StatusTab botStatus={botStatus} contacts={contacts} onDisconnect={handleDisconnect} onReconnect={handleReconnect} disconnecting={disconnecting} reconnecting={reconnecting} />
               </TabsContent>
             </Tabs>
           </DialogContent>
@@ -2246,6 +2641,8 @@ export default function App() {
           onClearSearchPrefill={() => setCatalogSearch('')}
           contacts={contacts}
           onReloadContacts={loadContacts}
+          groups={groups}
+          onReloadGroups={loadGroups}
         />
       </div>
     </TooltipProvider>

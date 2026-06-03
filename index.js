@@ -21,6 +21,8 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const SESSION_ID = process.env.SESSION_ID || 'pai';
 const MOCK_CONNECTION = process.env.MOCK_CONNECTION === 'true';
+const STANDDOWN_ON_CONFLICT = process.env.STANDDOWN_ON_CONFLICT === 'true';
+const RECONNECT_WATCHDOG_MS = Number(process.env.RECONNECT_WATCHDOG_MS || 30000);
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -222,11 +224,21 @@ async function connectToWhatsApp() {
 
                 if (shouldReconnect) {
                     isConnecting = true;
-                    // Reconnect automatically immediately or with a small delay
                     setTimeout(connectToWhatsApp, 5000);
                 } else if (isConflict) {
-                    isConnecting = false;
-                    console.warn('[WhatsApp] Session replaced by another active instance (Render/Prod). Standing down locally to prevent conflict loops.');
+                    qrCode = null;
+                    if (STANDDOWN_ON_CONFLICT) {
+                        isConnecting = false;
+                        console.warn('[WhatsApp] Session conflict. Standing down (STANDDOWN_ON_CONFLICT=true).');
+                    } else {
+                        console.warn('[WhatsApp] Session conflict. Clearing socket and reconnecting for a fresh QR...');
+                        isConnecting = true;
+                        if (sock) {
+                            try { sock.end(); } catch (_) { /* ignore */ }
+                            sock = null;
+                        }
+                        setTimeout(connectToWhatsApp, 5000);
+                    }
                 } else {
                     isConnecting = true;
                     console.error('[WhatsApp] Logged out. Deleting credentials in Supabase to start fresh.');
@@ -282,19 +294,59 @@ app.get('/status', (req, res) => {
         connected: isConnected,
         connecting: isConnecting,
         session_id: SESSION_ID,
-        phone_user: MOCK_CONNECTION ? '549342555555:12@s.whatsapp.net' : (sock?.user ? sock.user.id : null),
-        qr: qrCode
+        phone_user: isConnected
+            ? (MOCK_CONNECTION ? '549342555555:12@s.whatsapp.net' : (sock?.user?.id || null))
+            : null,
+        qr: qrCode,
+        stalled: !isConnected && !isConnecting && !qrCode
     });
 });
 
+// Endpoint to list all WhatsApp groups the bot is part of
+app.get('/groups', async (req, res) => {
+    if (MOCK_CONNECTION) {
+        return res.status(200).json({
+            success: true,
+            groups: [
+                { id: '120363000000000001@g.us', name: 'Grupo de Prueba 1 (MOCK)' },
+                { id: '120363000000000002@g.us', name: 'Obras Públicas (MOCK)' },
+                { id: '120363000000000003@g.us', name: 'Alumbrado Municipal (MOCK)' },
+            ]
+        });
+    }
+
+    if (!isConnected || !sock) {
+        return res.status(503).json({
+            success: false,
+            message: 'El bot de WhatsApp no está conectado.'
+        });
+    }
+
+    try {
+        const groupsMap = await sock.groupFetchAllParticipating();
+        const groups = Object.values(groupsMap).map(g => ({
+            id: g.id,
+            name: g.subject
+        }));
+        return res.status(200).json({ success: true, groups });
+    } catch (err) {
+        console.error('[Groups] Error fetching groups:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Error al obtener los grupos de WhatsApp.',
+            error: err.message
+        });
+    }
+});
+
 app.post('/send-pdf', async (req, res) => {
-    const { fileName, phoneNumber, caption, contactName, solicitudNro, subtipo, displayName } = req.body;
+    const { fileName, phoneNumber, groupJid, caption, contactName, solicitudNro, subtipo, displayName, isGroup } = req.body;
 
     // 1. Validation
-    if (!fileName || !phoneNumber) {
+    if (!fileName || (!phoneNumber && !groupJid)) {
         return res.status(400).json({ 
             success: false, 
-            message: 'Parámetros "fileName" y "phoneNumber" son requeridos.' 
+            message: 'Parámetros "fileName" y ("phoneNumber" o "groupJid") son requeridos.' 
         });
     }
 
@@ -306,16 +358,23 @@ app.post('/send-pdf', async (req, res) => {
     }
 
     try {
-        // Clean phone number (keep only digits)
-        const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        if (cleanNumber.length < 8) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'El número telefónico provisto es inválido o muy corto.' 
-            });
+        let jid;
+        let cleanNumber = '';
+
+        if (isGroup && groupJid) {
+            // Group message: use the group JID directly (format: XXXXX@g.us)
+            jid = groupJid;
+        } else {
+            // Individual contact: build JID from phone number
+            cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+            if (cleanNumber.length < 8) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'El número telefónico provisto es inválido o muy corto.' 
+                });
+            }
+            jid = `${cleanNumber}@s.whatsapp.net`;
         }
-        
-        const jid = `${cleanNumber}@s.whatsapp.net`;
 
         // 2. Anti-ban Random Delay (2 to 5 seconds)
         const delayMs = Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
@@ -361,12 +420,14 @@ app.post('/send-pdf', async (req, res) => {
         // Log successful shipment to database
         try {
             await supabase.from('shipments').insert({
-                contact_name: contactName || 'Desconocido',
-                contact_phone: cleanNumber,
+                contact_name: contactName || (isGroup ? 'Grupo' : 'Desconocido'),
+                contact_phone: cleanNumber || null,
                 solicitud_nro: solicitudNro || null,
                 subtipo: subtipo || null,
                 status: 'success',
-                message_text: caption || 'Adjunto el documento solicitado.'
+                message_text: caption || 'Adjunto el documento solicitado.',
+                is_group: !!isGroup,
+                group_jid: isGroup ? groupJid : null
             });
         } catch (dbErr) {
             console.error('[Webhook] Error logging successful shipment to database:', dbErr);
@@ -383,14 +444,16 @@ app.post('/send-pdf', async (req, res) => {
 
         // Log failed shipment to database
         try {
-            const cleanNumber = phoneNumber ? phoneNumber.replace(/[^0-9]/g, '') : 'Desconocido';
+            const failCleanNumber = (!isGroup && phoneNumber) ? phoneNumber.replace(/[^0-9]/g, '') : null;
             await supabase.from('shipments').insert({
-                contact_name: contactName || 'Desconocido',
-                contact_phone: cleanNumber,
+                contact_name: contactName || (isGroup ? 'Grupo' : 'Desconocido'),
+                contact_phone: failCleanNumber,
                 solicitud_nro: solicitudNro || null,
                 subtipo: subtipo || null,
                 status: 'failed',
-                message_text: caption || 'Adjunto el documento solicitado.'
+                message_text: caption || 'Adjunto el documento solicitado.',
+                is_group: !!isGroup,
+                group_jid: isGroup ? groupJid : null
             });
         } catch (dbErr) {
             console.error('[Webhook] Error logging failed shipment to database:', dbErr);
@@ -402,6 +465,30 @@ app.post('/send-pdf', async (req, res) => {
             error: err.message
         });
     }
+});
+
+// Force a fresh WhatsApp connection attempt (keeps credentials unless a QR is needed)
+app.post('/reconnect', async (req, res) => {
+    console.log(`[WhatsApp] Manual reconnect requested for session: ${SESSION_ID}`);
+    if (MOCK_CONNECTION) {
+        isConnected = false;
+        isConnecting = true;
+        setTimeout(() => {
+            isConnected = true;
+            isConnecting = false;
+        }, 2000);
+        return res.status(200).json({ success: true, message: 'Reconexión simulada iniciada.' });
+    }
+
+    qrCode = null;
+    isConnected = false;
+    isConnecting = true;
+    if (sock) {
+        try { sock.ev.removeAllListeners(); sock.end(); } catch (_) { /* ignore */ }
+        sock = null;
+    }
+    setTimeout(connectToWhatsApp, 1000);
+    return res.status(200).json({ success: true, message: 'Reconexión iniciada.' });
 });
 
 // Endpoint to completely disconnect WhatsApp session and clear credentials
@@ -477,6 +564,14 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
     console.error('[System Alert] Unhandled Rejection at:', promise, 'reason:', reason);
 });
+
+// Recover from zombie states where the socket died but nothing is reconnecting
+setInterval(() => {
+    if (MOCK_CONNECTION || isConnected || isConnecting || qrCode) return;
+    console.warn('[WhatsApp] Watchdog: disconnected with no QR and not connecting. Triggering reconnect...');
+    isConnecting = true;
+    connectToWhatsApp();
+}, RECONNECT_WATCHDOG_MS);
 
 // Start Express Server & WhatsApp Connection
 app.listen(PORT, () => {
