@@ -64,10 +64,9 @@ function PdfCanvasViewer({ file }) {
           const page = await pdf.getPage(i);
           const viewport = page.getViewport({ scale: 1.5 });
           const canvas = document.createElement('canvas');
+          canvas.className = 'pdf-page-canvas';
           canvas.width = viewport.width;
           canvas.height = viewport.height;
-          canvas.style.width = '100%';
-          canvas.style.display = 'block';
           if (i < pdf.numPages) {
             canvas.style.borderBottom = '1px solid var(--border)';
           }
@@ -90,19 +89,22 @@ function PdfCanvasViewer({ file }) {
   }, [file]);
 
   return (
-    <div className="w-full aspect-[1/1.43] rounded-b-2xl bg-background overflow-auto relative pdf-viewer-container">
+    <div className="w-full pdf-viewer-container px-4 pb-5 pt-3">
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="flex items-center justify-center py-16">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-destructive text-xs px-4 text-center">
+        <div className="flex flex-col items-center justify-center gap-2 text-destructive text-xs px-4 py-12 text-center">
           <AlertCircle className="w-6 h-6" />
           <span>{error}</span>
         </div>
       )}
-      <div ref={containerRef} className={loading || error ? 'invisible' : ''} />
+      <div
+        ref={containerRef}
+        className={`pdf-document-sheet w-full flex flex-col ${loading || error ? 'hidden' : ''}`}
+      />
     </div>
   );
 }
@@ -365,6 +367,18 @@ function PreviewAndPick({ file, contacts, groups = [], subtypesCatalog, onAddSub
   const [isEditingMessage, setIsEditingMessage] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const derivationBannerRef = useRef(null);
+
+  const scrollToDerivationBanner = useCallback(() => {
+    const scroll = () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      derivationBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    requestAnimationFrame(() => {
+      scroll();
+      setTimeout(scroll, 120);
+    });
+  }, []);
 
   const activeContacts = contacts.filter(c => c.is_active);
   const activeGroups = groups.filter(g => g.is_active);
@@ -429,6 +443,13 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
       setSelected(newSelected);
     });
   }, [file, subtypesCatalog, contacts, groups]);
+
+  useEffect(() => {
+    if (!extracting) {
+      const t = setTimeout(scrollToDerivationBanner, 80);
+      return () => clearTimeout(t);
+    }
+  }, [extracting, scrollToDerivationBanner]);
 
   const matchedCatalogItem = useMemo(() => {
     if (!pdfInfo.subtipo || !subtypesCatalog || subtypesCatalog.length === 0) return null;
@@ -537,36 +558,37 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
   return (
     <div className="animate-fade-slide-up w-full">
       {/* PDF info banner / PAI catalog matching */}
-      <div className="flex flex-col gap-3 mb-6">
+      <div ref={derivationBannerRef} className="flex flex-col gap-3 mb-6 scroll-mt-24">
         {extracting ? (
-          <div className="flex items-center gap-3 text-sm text-muted-foreground py-6 bg-card border rounded-3xl justify-center shadow-inner animate-pulse">
-            <Loader2 className="w-5 h-5 animate-spin text-primary" /> Analizando documento e identificando subtipos...
+          <div className="flex items-center gap-3 text-base sm:text-lg text-muted-foreground py-8 bg-card border rounded-3xl justify-center shadow-inner animate-pulse">
+            <Loader2 className="w-6 h-6 animate-spin text-primary shrink-0" />
+            <span className="font-semibold">Analizando documento e identificando subtipos...</span>
           </div>
         ) : (
           (() => {
             const isNonSac = !pdfInfo.solicitudNro && !pdfInfo.subtipo && !pdfInfo.ubicacion && !pdfInfo.areaDestino;
             if (isNonSac) {
               return (
-                <div className="py-3.5 px-6 rounded-2xl text-center space-y-0.5 border border-amber-500/20 text-amber-950 dark:text-amber-300 bg-amber-500/[0.06] dark:bg-amber-950/20 msf-title-banner animate-fade-slide-up">
-                  <h2 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter leading-none text-amber-600 dark:text-amber-400 flex items-center justify-center gap-2">
-                    <AlertCircle className="w-6 h-6 shrink-0" />
+                <div className="py-5 px-6 sm:px-8 rounded-2xl text-center space-y-2 border border-amber-500/20 text-amber-950 dark:text-amber-300 bg-amber-500/[0.06] dark:bg-amber-950/20 msf-title-banner animate-fade-slide-up">
+                  <h2 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter leading-tight text-amber-600 dark:text-amber-400 flex items-center justify-center gap-2 flex-wrap">
+                    <AlertCircle className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
                     ARCHIVO NO ESPECÍFICO DEL SAC
                   </h2>
-                  <p className="text-[11px] sm:text-xs font-semibold text-muted-foreground/90 max-w-xl mx-auto leading-normal">
+                  <p className="text-sm sm:text-base font-semibold text-muted-foreground/90 max-w-2xl mx-auto leading-relaxed">
                     Este documento no parece contener los campos habituales de un reclamo del SAC municipal. Se aplicará la plantilla general de envío.
                   </p>
                 </div>
               );
             }
             return (
-              <div className={`py-3.5 px-6 rounded-2xl text-center space-y-0.5 border transition-all duration-300 msf-title-banner ${
+              <div className={`py-5 px-6 sm:px-8 rounded-2xl text-center space-y-2 border transition-all duration-300 msf-title-banner ${
                 matchedCatalogItem
                   ? matchedCatalogItem.derivar
                     ? 'bg-emerald-500/[0.06] border-emerald-500/20 text-emerald-950 dark:text-emerald-300 dark:bg-emerald-950/20 dark:border-emerald-500/10'
                     : 'bg-rose-500/[0.06] border-rose-500/20 text-rose-950 dark:text-rose-300 dark:bg-rose-950/20 dark:border-rose-500/10'
                   : 'bg-blue-500/[0.06] border-blue-500/20 text-blue-950 dark:text-blue-300 dark:bg-blue-950/20 dark:border-blue-500/10'
               }`}>
-                <h2 className={`text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter leading-none ${
+                <h2 className={`text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter leading-tight ${
                   matchedCatalogItem
                     ? matchedCatalogItem.derivar
                       ? 'text-emerald-600 dark:text-emerald-400'
@@ -579,7 +601,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                       : 'ESTE RECLAMO NO SE DERIVA POR PAI'
                     : 'SUBTIPO NO CATALOGADO'}
                 </h2>
-                <p className="text-[11px] sm:text-xs font-semibold text-muted-foreground/90 max-w-xl mx-auto leading-normal">
+                <p className="text-sm sm:text-base md:text-lg font-semibold text-muted-foreground/90 max-w-2xl mx-auto leading-relaxed">
                   {matchedCatalogItem
                     ? matchedCatalogItem.derivar
                       ? `El subtipo ${matchedCatalogItem.subtipo} está configurado para derivación automática.`
@@ -587,8 +609,8 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                     : `El subtipo ${pdfInfo.subtipo || "Desconocido"} no está registrado en el catálogo. Por favor, verificá con un supervisor.`}
                 </p>
                 {matchedCatalogItem && matchedCatalogItem.derivar && matchedCatalogItem.comentarios && (
-                  <div className="mt-1.5 pt-1.5 border-t border-emerald-500/10 text-center max-w-3xl mx-auto">
-                    <p className="text-xs sm:text-sm font-bold leading-normal text-emerald-950 dark:text-emerald-200">
+                  <div className="mt-2 pt-2 border-t border-emerald-500/10 text-center max-w-3xl mx-auto">
+                    <p className="text-sm sm:text-base font-bold leading-relaxed text-emerald-950 dark:text-emerald-200">
                       {matchedCatalogItem.comentarios}
                     </p>
                   </div>
@@ -599,27 +621,33 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
         )}
       </div>
 
-      {/* Split layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start preview-split-grid">
+      {/* Dos columnas: PDF izquierda (ancho completo de columna) · envío derecha */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start preview-split-grid">
 
-        {/* LEFT: PDF Preview */}
-        <div className="rounded-2xl overflow-hidden border bg-muted flex flex-col shadow-sm">
-          <div className="flex items-center gap-2.5 px-4 py-2.5 bg-card border-b">
-            <div className="w-7 h-7 rounded-lg bg-red-100 dark:bg-red-950 flex items-center justify-center flex-shrink-0">
-              <FileText className="w-4 h-4 text-red-500" />
+        <section className="min-w-0 preview-pdf-column">
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2.5 px-1 py-2.5 border-b border-border/60">
+              <div className="w-7 h-7 rounded-lg bg-red-100 dark:bg-red-950 flex items-center justify-center flex-shrink-0">
+                <FileText className="w-4 h-4 text-red-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate">{file.name}</p>
+                <p className="text-[10px] text-muted-foreground">{formatBytes(file.size)}</p>
+              </div>
+              <button
+                type="button"
+                onClick={onBack}
+                className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded lg:hidden"
+                title="Volver"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-foreground truncate">{file.name}</p>
-              <p className="text-[10px] text-muted-foreground">{formatBytes(file.size)}</p>
-            </div>
-            <button onClick={onBack} className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded">
-              <X className="w-4 h-4" />
-            </button>
+            <PdfCanvasViewer file={file} />
           </div>
-          <PdfCanvasViewer file={file} />
-        </div>
+        </section>
 
-        {/* RIGHT: Contact Picker & Message Flow */}
+        <section className="min-w-0 lg:sticky lg:top-20 self-start preview-send-panel">
         <div className="flex flex-col gap-4">
           
           {/* Header */}
@@ -814,6 +842,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
             </button>
           </div>
         </div>
+        </section>
       </div>
     </div>
   );
@@ -1979,6 +2008,9 @@ export default function App() {
       if (droppedFile && droppedFile.type === 'application/pdf' && droppedFile.size <= 52428800) {
         setFile(droppedFile);
         setStep(1);
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
       } else if (droppedFile) {
         showToast('Carga cancelada: Solo archivos PDF de hasta 50 MB.', 'error');
       }
@@ -2098,6 +2130,24 @@ export default function App() {
       setSendingDetails(null);
     }
   };
+
+  useEffect(() => {
+    if (step === 1 && file) {
+      const t = setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [step, file]);
+
+  useEffect(() => {
+    if (step === 1 && derivationStatus) {
+      const t = setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [derivationStatus, step]);
 
   const handleCloseSending = () => {
     if (autoCloseTimeoutRef.current) {
@@ -2234,7 +2284,13 @@ export default function App() {
           {step === 0 && (
             <div className="animate-slide-backward flex flex-col items-center gap-6 w-full">
               <DropZone 
-                onFile={(f) => { setFile(f); setStep(1); }} 
+                onFile={(f) => {
+                  setFile(f);
+                  setStep(1);
+                  requestAnimationFrame(() => {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  });
+                }} 
                 botStatus={botStatus}
                 onOpenConfig={handleOpenConfig}
               />
@@ -2263,7 +2319,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Mini Historial de Envíos en tiempo real */}
+          {/* Mini Historial (solo en pantalla inicial, no compite con el PDF) */}
+          {step === 0 && (
           <div className="mt-12 w-full max-w-4xl mx-auto space-y-4">
             <div className="flex items-center gap-2 border-b pb-2">
               <History className="w-5 h-5 text-primary" />
@@ -2287,6 +2344,7 @@ export default function App() {
               </div>
             )}
           </div>
+          )}
         </main>
 
         <footer className="w-full bg-gradient-to-r from-[#002144] via-[#003b73] to-[#002144] text-white py-10 px-6 mt-16 border-t border-[#003b73]/30 relative overflow-hidden">

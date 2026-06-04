@@ -359,6 +359,36 @@
   }
 }
 
+/* PDF: hoja blanca con borde/sombra sobre el fondo de la app */
+.pdf-viewer-container {
+  overflow: visible;
+}
+
+.pdf-document-sheet {
+  background: #fff;
+  border: 1px solid hsl(var(--border) / 0.9);
+  border-radius: 0.5rem;
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 0.06),
+    0 6px 20px rgb(15 23 42 / 0.1);
+  overflow: hidden;
+}
+
+.dark .pdf-document-sheet {
+  background: #fafafa;
+  border-color: hsl(var(--border));
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.2),
+    0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+.pdf-page-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+}
+
 /* ===== RESPONSIVE OPTIMIZATIONS FOR 720p / 1366x768 AND SHORT VIEWPORTS ===== */
 @media (max-height: 800px) {
   .msf-header-container {
@@ -384,11 +414,7 @@
   .preview-split-grid {
     gap: 1rem !important;
   }
-  
-  .pdf-viewer-container {
-    max-height: 380px !important;
-  }
-  
+
   .contacts-scroll-area {
     height: 140px !important;
   }
