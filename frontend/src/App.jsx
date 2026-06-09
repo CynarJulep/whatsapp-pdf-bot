@@ -140,26 +140,105 @@ const normalizePhone = (raw) => {
   return p;
 };
 
+const USUARIO_CARGA_SKIP = new Set([
+  'fecha', 'hora', 'estado', 'derivado', 'derivar', 'operacion', 'operación', 'operacionn', 'recibido',
+  'pagina', 'página', 'sistema', 'municipalidad', 'santa'
+]);
+
+function looksLikeUsuarioCarga(value) {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  return /^[a-z][a-z0-9._-]{2,32}$/i.test(trimmed) && !USUARIO_CARGA_SKIP.has(trimmed.toLowerCase());
+}
+
 function extractUsuarioCarga(fullText) {
   if (!fullText) return null;
-  const normalized = fullText.replace(/\s+/g, ' ');
-  const historiaIdx = normalized.search(/\bHistoria\b/i);
-  const historiaSlice = historiaIdx >= 0 ? normalized.slice(historiaIdx, historiaIdx + 1500) : normalized;
 
-  const derivarRow = historiaSlice.match(/\bDerivar\s+Derivado\s+([a-z][a-z0-9._-]{2,32})\s+\d{2}\/\d{2}\/\d{4}/i);
-  if (derivarRow) return derivarRow[1].toLowerCase();
+  const historiaIdx = fullText.search(/\bHistoria\b/i);
+  const historiaText = historiaIdx >= 0 ? fullText.slice(historiaIdx, historiaIdx + 2000) : fullText;
+  const normalized = historiaText.replace(/\s+/g, ' ');
 
-  const derivadoRow = historiaSlice.match(/\bDerivado\s+([a-z][a-z0-9._-]{2,32})\s+\d{2}\/\d{2}\/\d{4}/i);
-  if (derivadoRow) return derivadoRow[1].toLowerCase();
+  // Prioridad: fila "Derivar / Derivado / usuario / fecha" (usuario de carga SAC)
+  const derivarMatches = [...normalized.matchAll(/\bDerivar\s+Derivado\s+([a-zA-Z][a-zA-Z0-9._-]{2,32})\s+\d{2}\/\d{2}\/\d{4}/g)];
+  for (const match of derivarMatches) {
+    if (looksLikeUsuarioCarga(match[1])) return match[1].toLowerCase();
+  }
 
-  const usuarioMatches = [...historiaSlice.matchAll(/\bUsuario\s*:?\s*([a-z][a-z0-9._-]{2,32})/gi)];
-  const skip = new Set(['fecha', 'hora', 'estado', 'derivado', 'derivar', 'operacion', 'operación', 'operacionn']);
+  const historiaLines = historiaText.split(/\r?\n/);
+  let inHistoria = historiaIdx < 0;
+  for (const rawLine of historiaLines) {
+    const line = rawLine.replace(/\s+/g, ' ').trim();
+    if (!line) continue;
+    if (/\bHistoria\b/i.test(line)) {
+      inHistoria = true;
+      continue;
+    }
+    if (!inHistoria) continue;
+
+    if (/\bDerivar\b/i.test(line) && /\bDerivado\b/i.test(line)) {
+      const inline = line.match(/\bDerivado\b\s+([a-zA-Z][a-zA-Z0-9._-]{2,32})\b/);
+      if (inline && looksLikeUsuarioCarga(inline[1])) return inline[1].toLowerCase();
+
+      const parts = line.split(/\s+/);
+      const derivadoIdx = parts.findIndex((part) => /^derivado$/i.test(part));
+      if (derivadoIdx >= 0) {
+        const candidate = parts[derivadoIdx + 1];
+        if (looksLikeUsuarioCarga(candidate)) return candidate.toLowerCase();
+      }
+    }
+
+    const soloUsuario = line.match(/^([a-zA-Z][a-zA-Z0-9._-]{2,32})\s+\d{2}\/\d{2}\/\d{4}/);
+    if (soloUsuario && looksLikeUsuarioCarga(soloUsuario[1])) return soloUsuario[1].toLowerCase();
+  }
+
+  // Fallback: filas sueltas "fecha hora usuario" (sin operación visible en el PDF)
+  for (const rawLine of historiaLines) {
+    const line = rawLine.replace(/\s+/g, ' ').trim();
+    const dateUser = line.match(/\b\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+([a-zA-Z][a-zA-Z0-9._-]{2,32})\b/);
+    if (dateUser && looksLikeUsuarioCarga(dateUser[1])) return dateUser[1].toLowerCase();
+  }
+
+  const usuarioMatches = [...normalized.matchAll(/\bUsuario\s*:?\s*([a-zA-Z][a-zA-Z0-9._-]{2,32})/gi)];
   for (let i = usuarioMatches.length - 1; i >= 0; i--) {
-    const val = usuarioMatches[i][1].toLowerCase();
-    if (!skip.has(val)) return val;
+    const val = usuarioMatches[i][1];
+    if (looksLikeUsuarioCarga(val)) return val.toLowerCase();
   }
 
   return null;
+}
+
+function extractPageText(content) {
+  const items = content.items
+    .filter((it) => it.str?.trim())
+    .map((it) => ({
+      str: it.str.trim(),
+      x: it.transform[4],
+      y: it.transform[5],
+    }));
+
+  items.sort((a, b) => b.y - a.y || a.x - b.x);
+
+  const lines = [];
+  let currentLine = [];
+  let lastY = null;
+  const yTolerance = 4;
+
+  for (const item of items) {
+    if (lastY !== null && Math.abs(item.y - lastY) > yTolerance) {
+      if (currentLine.length) {
+        lines.push(currentLine.sort((a, b) => a.x - b.x).map((it) => it.str).join(' '));
+      }
+      currentLine = [];
+    }
+    currentLine.push(item);
+    lastY = item.y;
+  }
+
+  if (currentLine.length) {
+    lines.push(currentLine.sort((a, b) => a.x - b.x).map((it) => it.str).join(' '));
+  }
+
+  return lines.join('\n');
 }
 
 // ── Extract PDF text and detect "Area destino" ─────────────────────────────────
@@ -171,7 +250,7 @@ async function extractPdfInfo(file) {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      fullText += content.items.map(it => it.str).join(' ') + '\n';
+      fullText += extractPageText(content) + '\n';
     }
 
     // Try to find "Area destino" value
@@ -548,7 +627,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (sending) return;
+      if (sending || extracting) return;
       if (e.key === 'Enter' && selected.size > 0) {
         e.preventDefault();
         handleSend();
@@ -563,7 +642,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selected, sending, onBack, isOpen]);
+  }, [selected, sending, extracting, onBack, isOpen]);
 
   const handleCopyMessage = () => {
     navigator.clipboard.writeText(messageText).then(() => {
@@ -853,7 +932,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
             </Button>
             <button
               onClick={handleSend}
-              disabled={selected.size === 0 || sending}
+              disabled={selected.size === 0 || sending || extracting}
               className="send-btn flex-1 h-12 rounded-xl text-sm font-bold text-white
                 flex items-center justify-center gap-2.5
                 bg-primary hover:bg-primary/90
@@ -1555,6 +1634,50 @@ function StatusTab({ botStatus, contacts, onDisconnect, onReconnect, disconnecti
   );
 }
 
+function HistoryItemExpandedContent({ item, showUsuario = false }) {
+  const usuarioCarga = showUsuario ? item.usuario_carga : null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <p className="text-[10px] font-bold text-primary uppercase tracking-wider shrink-0">
+          Detalle del Mensaje Enviado
+        </p>
+        {usuarioCarga && (
+          <>
+            <span className="text-muted-foreground/35 text-[10px]">|</span>
+            <p className="text-[10px] font-bold text-primary/60 uppercase tracking-wider shrink-0">
+              Usuario
+            </p>
+            <span className="text-[11px] text-muted-foreground/55 font-mono break-all">
+              {usuarioCarga}
+            </span>
+          </>
+        )}
+        {item.file_name && (
+          <>
+            <span className="text-muted-foreground/35 text-[10px]">|</span>
+            <p className="text-[10px] font-bold text-primary uppercase tracking-wider shrink-0">
+              Archivo Enviado
+            </p>
+            <span className="text-[11px] text-muted-foreground font-medium break-all">
+              {item.file_name}
+            </span>
+          </>
+        )}
+      </div>
+
+      {item.message_text ? (
+        <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/40 p-3 rounded-xl border break-words">
+          {item.message_text}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground italic">No hay contenido de mensaje registrado.</p>
+      )}
+    </div>
+  );
+}
+
 function HistoryItem({ item }) {
   const [expanded, setExpanded] = useState(false);
   const elementRef = useRef(null);
@@ -1598,59 +1721,18 @@ function HistoryItem({ item }) {
           <span className="text-xs text-muted-foreground font-medium">
             Sol. Nro {item.solicitud_nro || 'S/N'}
           </span>
-
-          {item.file_name && (
-            <>
-              <span className="text-muted-foreground">|</span>
-              <span className="text-xs text-muted-foreground truncate max-w-[220px]" title={item.file_name}>
-                📄 {item.file_name}
-              </span>
-            </>
-          )}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start md:self-auto flex-shrink-0">
           <span>{dateStr} {timeStr}</span>
-          {item.usuario_carga && (
-            <span className="text-[10px] font-normal opacity-35 normal-case tracking-normal hidden sm:inline" title="Usuario de carga">
-              {item.usuario_carga}
-            </span>
-          )}
           <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} />
         </div>
       </div>
 
-      <div className={`transition-all duration-300 ease-in-out border-t border-border/40 bg-card ${
-        expanded ? 'max-h-[300px] opacity-100 p-4' : 'max-h-0 opacity-0 pointer-events-none'
+      <div className={`transition-all duration-300 ease-in-out border-t border-border/40 bg-card overflow-hidden ${
+        expanded ? 'max-h-[5000px] opacity-100 p-4' : 'max-h-0 opacity-0 pointer-events-none p-0'
       }`}>
-        {item.message_text ? (
-          <div className="space-y-2">
-            {item.file_name && (
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Archivo Enviado</p>
-                <p className="text-xs text-foreground font-semibold break-all">{item.file_name}</p>
-              </div>
-            )}
-            <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Detalle del Mensaje Enviado</p>
-            <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/40 p-3 rounded-xl border">
-              {item.message_text}
-            </div>
-            {item.usuario_carga && (
-              <p className="text-[10px] text-muted-foreground/50 pt-1">
-                Usuario de carga: <span className="font-mono">{item.usuario_carga}</span>
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {item.usuario_carga && (
-              <p className="text-[10px] text-muted-foreground/50">
-                Usuario de carga: <span className="font-mono">{item.usuario_carga}</span>
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground italic">No hay contenido de mensaje registrado.</p>
-          </div>
-        )}
+        <HistoryItemExpandedContent item={item} showUsuario />
       </div>
     </div>
   );
@@ -1699,15 +1781,6 @@ function DashboardHistoryItem({ item }) {
           <span className="text-xs text-muted-foreground font-medium">
             Sol. Nro {item.solicitud_nro || 'S/N'}
           </span>
-
-          {item.file_name && (
-            <>
-              <span className="text-muted-foreground">|</span>
-              <span className="text-xs text-muted-foreground truncate max-w-[220px]" title={item.file_name}>
-                📄 {item.file_name}
-              </span>
-            </>
-          )}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start sm:self-auto flex-shrink-0">
@@ -1716,25 +1789,10 @@ function DashboardHistoryItem({ item }) {
         </div>
       </div>
 
-      <div className={`transition-all duration-300 ease-in-out border-t border-border/40 bg-card ${
-        expanded ? 'max-h-[300px] opacity-100 p-4' : 'max-h-0 opacity-0 pointer-events-none'
+      <div className={`transition-all duration-300 ease-in-out border-t border-border/40 bg-card overflow-hidden ${
+        expanded ? 'max-h-[5000px] opacity-100 p-4' : 'max-h-0 opacity-0 pointer-events-none p-0'
       }`}>
-        {item.message_text ? (
-          <div className="space-y-2">
-            {item.file_name && (
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Archivo Enviado</p>
-                <p className="text-xs text-foreground font-semibold break-all">{item.file_name}</p>
-              </div>
-            )}
-            <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Detalle del Mensaje Enviado</p>
-            <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/40 p-3 rounded-xl border">
-              {item.message_text}
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground italic">No hay contenido de mensaje registrado.</p>
-        )}
+        <HistoryItemExpandedContent item={item} />
       </div>
     </div>
   );
