@@ -140,6 +140,28 @@ const normalizePhone = (raw) => {
   return p;
 };
 
+function extractUsuarioCarga(fullText) {
+  if (!fullText) return null;
+  const normalized = fullText.replace(/\s+/g, ' ');
+  const historiaIdx = normalized.search(/\bHistoria\b/i);
+  const historiaSlice = historiaIdx >= 0 ? normalized.slice(historiaIdx, historiaIdx + 1500) : normalized;
+
+  const derivarRow = historiaSlice.match(/\bDerivar\s+Derivado\s+([a-z][a-z0-9._-]{2,32})\s+\d{2}\/\d{2}\/\d{4}/i);
+  if (derivarRow) return derivarRow[1].toLowerCase();
+
+  const derivadoRow = historiaSlice.match(/\bDerivado\s+([a-z][a-z0-9._-]{2,32})\s+\d{2}\/\d{2}\/\d{4}/i);
+  if (derivadoRow) return derivadoRow[1].toLowerCase();
+
+  const usuarioMatches = [...historiaSlice.matchAll(/\bUsuario\s*:?\s*([a-z][a-z0-9._-]{2,32})/gi)];
+  const skip = new Set(['fecha', 'hora', 'estado', 'derivado', 'derivar', 'operacion', 'operación', 'operacionn']);
+  for (let i = usuarioMatches.length - 1; i >= 0; i--) {
+    const val = usuarioMatches[i][1].toLowerCase();
+    if (!skip.has(val)) return val;
+  }
+
+  return null;
+}
+
 // ── Extract PDF text and detect "Area destino" ─────────────────────────────────
 async function extractPdfInfo(file) {
   try {
@@ -180,9 +202,11 @@ async function extractPdfInfo(file) {
     const fechaMatch = fullText.match(/Fecha[:\s\-]+([0-9]{2}\/[0-9]{2}\/[0-9]{4}\s+[0-9]{2}:[0-9]{2})/i);
     const fecha = fechaMatch ? fechaMatch[1].trim() : null;
 
-    return { areaDestino, solicitudNro, tipo, subtipo, ubicacion, descripcion, fecha, fullText };
+    const usuarioCarga = extractUsuarioCarga(fullText);
+
+    return { areaDestino, solicitudNro, tipo, subtipo, ubicacion, descripcion, fecha, usuarioCarga, fullText };
   } catch {
-    return { areaDestino: null, solicitudNro: null, tipo: null, subtipo: null, ubicacion: null, descripcion: null, fecha: null, fullText: '' };
+    return { areaDestino: null, solicitudNro: null, tipo: null, subtipo: null, ubicacion: null, descripcion: null, fecha: null, usuarioCarga: null, fullText: '' };
   }
 }
 
@@ -362,7 +386,7 @@ function PreviewAndPick({ file, contacts, groups = [], subtypesCatalog, onAddSub
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
   const [extracting, setExtracting] = useState(true);
-  const [pdfInfo, setPdfInfo] = useState({ areaDestino: null, solicitudNro: null, tipo: null, subtipo: null, ubicacion: null, descripcion: null, fecha: null });
+  const [pdfInfo, setPdfInfo] = useState({ areaDestino: null, solicitudNro: null, tipo: null, subtipo: null, ubicacion: null, descripcion: null, fecha: null, usuarioCarga: null });
   const [messageText, setMessageText] = useState('');
   const [isEditingMessage, setIsEditingMessage] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -1574,10 +1598,24 @@ function HistoryItem({ item }) {
           <span className="text-xs text-muted-foreground font-medium">
             Sol. Nro {item.solicitud_nro || 'S/N'}
           </span>
+
+          {item.file_name && (
+            <>
+              <span className="text-muted-foreground">|</span>
+              <span className="text-xs text-muted-foreground truncate max-w-[220px]" title={item.file_name}>
+                📄 {item.file_name}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start md:self-auto flex-shrink-0">
           <span>{dateStr} {timeStr}</span>
+          {item.usuario_carga && (
+            <span className="text-[10px] font-normal opacity-35 normal-case tracking-normal hidden sm:inline" title="Usuario de carga">
+              {item.usuario_carga}
+            </span>
+          )}
           <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} />
         </div>
       </div>
@@ -1587,13 +1625,31 @@ function HistoryItem({ item }) {
       }`}>
         {item.message_text ? (
           <div className="space-y-2">
+            {item.file_name && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Archivo Enviado</p>
+                <p className="text-xs text-foreground font-semibold break-all">{item.file_name}</p>
+              </div>
+            )}
             <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Detalle del Mensaje Enviado</p>
             <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/40 p-3 rounded-xl border">
               {item.message_text}
             </div>
+            {item.usuario_carga && (
+              <p className="text-[10px] text-muted-foreground/50 pt-1">
+                Usuario de carga: <span className="font-mono">{item.usuario_carga}</span>
+              </p>
+            )}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground italic">No hay contenido de mensaje registrado.</p>
+          <div className="space-y-2">
+            {item.usuario_carga && (
+              <p className="text-[10px] text-muted-foreground/50">
+                Usuario de carga: <span className="font-mono">{item.usuario_carga}</span>
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground italic">No hay contenido de mensaje registrado.</p>
+          </div>
         )}
       </div>
     </div>
@@ -1643,6 +1699,15 @@ function DashboardHistoryItem({ item }) {
           <span className="text-xs text-muted-foreground font-medium">
             Sol. Nro {item.solicitud_nro || 'S/N'}
           </span>
+
+          {item.file_name && (
+            <>
+              <span className="text-muted-foreground">|</span>
+              <span className="text-xs text-muted-foreground truncate max-w-[220px]" title={item.file_name}>
+                📄 {item.file_name}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start sm:self-auto flex-shrink-0">
@@ -1656,6 +1721,12 @@ function DashboardHistoryItem({ item }) {
       }`}>
         {item.message_text ? (
           <div className="space-y-2">
+            {item.file_name && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Archivo Enviado</p>
+                <p className="text-xs text-foreground font-semibold break-all">{item.file_name}</p>
+              </div>
+            )}
             <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Detalle del Mensaje Enviado</p>
             <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed bg-muted/40 p-3 rounded-xl border">
               {item.message_text}
@@ -1695,12 +1766,13 @@ function HistoryTab({ shipments, loading, onReload }) {
       if (!map[localDateStr]) {
         map[localDateStr] = {
           label: dayLabel,
+          sortKey: dateObj.getTime(),
           items: []
         };
       }
       map[localDateStr].items.push(s);
     });
-    return Object.values(map);
+    return Object.values(map).sort((a, b) => b.sortKey - a.sortKey);
   }, [shipments]);
 
   return (
@@ -1811,7 +1883,9 @@ export default function App() {
       const sub = (s.subtipo || '').toLowerCase();
       const contact = (s.contact_name || '').toLowerCase();
       const msg = (s.message_text || '').toLowerCase();
-      return sol.includes(term) || sub.includes(term) || contact.includes(term) || msg.includes(term);
+      const file = (s.file_name || '').toLowerCase();
+      const usuario = (s.usuario_carga || '').toLowerCase();
+      return sol.includes(term) || sub.includes(term) || contact.includes(term) || msg.includes(term) || file.includes(term) || usuario.includes(term);
     });
   }, [shipments, historySearch]);
 
@@ -1858,13 +1932,26 @@ export default function App() {
   const loadShipments = useCallback(async () => {
     setLoadingShipments(true);
     try {
-      const { data, error } = await supabase
-        .from('shipments')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const pageSize = 1000;
+      let from = 0;
+      const allRows = [];
 
-      if (error) throw error;
-      setShipments(data || []);
+      while (true) {
+        const { data, error } = await supabase
+          .from('shipments')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+        if (!data?.length) break;
+
+        allRows.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+
+      setShipments(allRows);
     } catch (err) {
       console.error('Error al cargar historial:', err);
       showToast('Error al cargar el historial de envíos', 'error');
@@ -2085,7 +2172,8 @@ export default function App() {
                 contactName: recipient.name,
                 solicitudNro: pdfInfo?.solicitudNro,
                 subtipo: pdfInfo?.subtipo,
-                displayName: displayName
+                displayName: displayName,
+                usuarioCarga: pdfInfo?.usuarioCarga || null
               }
             : {
                 fileName: uniqueName,
@@ -2094,7 +2182,8 @@ export default function App() {
                 contactName: recipient.name,
                 solicitudNro: pdfInfo?.solicitudNro,
                 subtipo: pdfInfo?.subtipo,
-                displayName: displayName
+                displayName: displayName,
+                usuarioCarga: pdfInfo?.usuarioCarga || null
               };
           const res = await fetch(`${backendUrl}/send-pdf`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2437,7 +2526,7 @@ export default function App() {
                 Historial de Derivaciones
               </DialogTitle>
               <DialogDescription>
-                Buscador y registro completo de todos los PDFs enviados.
+                Registro completo de todos los PDFs enviados ({filteredShipments.length} de {shipments.length}).
               </DialogDescription>
             </DialogHeader>
             <div className="mt-2 space-y-4">
@@ -2445,7 +2534,7 @@ export default function App() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input 
-                  placeholder="Buscar por solicitud, subtipo o destinatario..." 
+                  placeholder="Buscar por solicitud, subtipo, destinatario o archivo..." 
                   value={historySearch} 
                   onChange={(e) => setHistorySearch(e.target.value)} 
                   className="pl-10 h-10 text-sm"

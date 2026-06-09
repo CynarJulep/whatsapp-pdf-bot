@@ -339,8 +339,34 @@ app.get('/groups', async (req, res) => {
     }
 });
 
+async function logShipment(record) {
+    const optionalFields = ['file_name', 'usuario_carga'];
+    let payload = { ...record };
+
+    let { error } = await supabase.from('shipments').insert(payload);
+    for (const field of optionalFields) {
+        if (error && Object.prototype.hasOwnProperty.call(payload, field)) {
+            const nextPayload = { ...payload };
+            delete nextPayload[field];
+            payload = nextPayload;
+            ({ error } = await supabase.from('shipments').insert(payload));
+        }
+    }
+
+    if (error) {
+        console.error('[Webhook] Error logging shipment to database:', error);
+    }
+}
+
+function shipmentContactPhone({ isGroup, cleanNumber, groupJid, phoneNumber }) {
+    if (isGroup) return groupJid || 'grupo';
+    if (cleanNumber) return cleanNumber;
+    if (phoneNumber) return phoneNumber.replace(/[^0-9]/g, '') || 'desconocido';
+    return 'desconocido';
+}
+
 app.post('/send-pdf', async (req, res) => {
-    const { fileName, phoneNumber, groupJid, caption, contactName, solicitudNro, subtipo, displayName, isGroup } = req.body;
+    const { fileName, phoneNumber, groupJid, caption, contactName, solicitudNro, subtipo, displayName, isGroup, usuarioCarga } = req.body;
 
     // 1. Validation
     if (!fileName || (!phoneNumber && !groupJid)) {
@@ -418,20 +444,18 @@ app.post('/send-pdf', async (req, res) => {
         console.log(`[Webhook] PDF successfully sent. Message ID: ${response.key.id}`);
 
         // Log successful shipment to database
-        try {
-            await supabase.from('shipments').insert({
-                contact_name: contactName || (isGroup ? 'Grupo' : 'Desconocido'),
-                contact_phone: cleanNumber || null,
-                solicitud_nro: solicitudNro || null,
-                subtipo: subtipo || null,
-                status: 'success',
-                message_text: caption || 'Adjunto el documento solicitado.',
-                is_group: !!isGroup,
-                group_jid: isGroup ? groupJid : null
-            });
-        } catch (dbErr) {
-            console.error('[Webhook] Error logging successful shipment to database:', dbErr);
-        }
+        await logShipment({
+            contact_name: contactName || (isGroup ? 'Grupo' : 'Desconocido'),
+            contact_phone: shipmentContactPhone({ isGroup, cleanNumber, groupJid, phoneNumber }),
+            solicitud_nro: solicitudNro || null,
+            subtipo: subtipo || null,
+            file_name: displayName || fileName || null,
+            usuario_carga: usuarioCarga || null,
+            status: 'success',
+            message_text: caption || 'Adjunto el documento solicitado.',
+            is_group: !!isGroup,
+            group_jid: isGroup ? groupJid : null
+        });
 
         return res.status(200).json({
             success: true,
@@ -443,21 +467,19 @@ app.post('/send-pdf', async (req, res) => {
         console.error('[Webhook] Error sending PDF:', err);
 
         // Log failed shipment to database
-        try {
-            const failCleanNumber = (!isGroup && phoneNumber) ? phoneNumber.replace(/[^0-9]/g, '') : null;
-            await supabase.from('shipments').insert({
-                contact_name: contactName || (isGroup ? 'Grupo' : 'Desconocido'),
-                contact_phone: failCleanNumber,
-                solicitud_nro: solicitudNro || null,
-                subtipo: subtipo || null,
-                status: 'failed',
-                message_text: caption || 'Adjunto el documento solicitado.',
-                is_group: !!isGroup,
-                group_jid: isGroup ? groupJid : null
-            });
-        } catch (dbErr) {
-            console.error('[Webhook] Error logging failed shipment to database:', dbErr);
-        }
+        const failCleanNumber = (!isGroup && phoneNumber) ? phoneNumber.replace(/[^0-9]/g, '') : '';
+        await logShipment({
+            contact_name: contactName || (isGroup ? 'Grupo' : 'Desconocido'),
+            contact_phone: shipmentContactPhone({ isGroup, cleanNumber: failCleanNumber, groupJid, phoneNumber }),
+            solicitud_nro: solicitudNro || null,
+            subtipo: subtipo || null,
+            file_name: displayName || fileName || null,
+            usuario_carga: usuarioCarga || null,
+            status: 'failed',
+            message_text: caption || 'Adjunto el documento solicitado.',
+            is_group: !!isGroup,
+            group_jid: isGroup ? groupJid : null
+        });
 
         return res.status(500).json({
             success: false,

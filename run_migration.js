@@ -47,9 +47,11 @@ ALTER TABLE public.shipments ADD COLUMN IF NOT EXISTS group_jid TEXT;
   }
 
   // Verificar columnas en shipments
-  const { error: shipErr } = await supabase.from('shipments').select('is_group').limit(1);
+  const { error: shipErr } = await supabase.from('shipments').select('is_group, file_name').limit(1);
   if (!shipErr) {
-    console.log('✓ Columnas is_group/group_jid ya existen en shipments');
+    console.log('✓ Columnas is_group/group_jid/file_name verificadas en shipments');
+  } else if (shipErr.message?.includes('file_name')) {
+    console.log('⚠ Falta la columna file_name en shipments. Ejecutá migration_shipments_file_name.sql en Supabase.');
   } else {
     console.log('⚠ Las columnas is_group/group_jid no existen en shipments. Agregalas manualmente.');
   }

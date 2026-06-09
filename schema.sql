@@ -148,5 +148,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.whatsapp_groups TO anon, authenti
 
 ALTER TABLE public.shipments
     ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS group_jid TEXT;
+    ADD COLUMN IF NOT EXISTS group_jid TEXT,
+    ADD COLUMN IF NOT EXISTS file_name TEXT,
+    ADD COLUMN IF NOT EXISTS usuario_carga TEXT;
 
