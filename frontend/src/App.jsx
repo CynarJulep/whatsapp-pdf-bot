@@ -723,66 +723,109 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                 </div>
               );
             }
+            const showDerivedAside = matchedCatalogItem?.derivar && alreadyDerivedInfo;
+
             return (
-              <div className={`py-5 px-6 sm:px-8 rounded-2xl text-center space-y-2 border transition-all duration-300 msf-title-banner ${
+              <div className={`rounded-2xl border transition-all duration-300 msf-title-banner overflow-hidden ${
                 matchedCatalogItem
                   ? matchedCatalogItem.derivar
                     ? 'bg-emerald-500/[0.06] border-emerald-500/20 text-emerald-950 dark:text-emerald-300 dark:bg-emerald-950/20 dark:border-emerald-500/10'
                     : 'bg-rose-500/[0.06] border-rose-500/20 text-rose-950 dark:text-rose-300 dark:bg-rose-950/20 dark:border-rose-500/10'
                   : 'bg-blue-500/[0.06] border-blue-500/20 text-blue-950 dark:text-blue-300 dark:bg-blue-950/20 dark:border-blue-500/10'
               }`}>
-                <h2 className={`text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter leading-tight ${
-                  matchedCatalogItem
-                    ? matchedCatalogItem.derivar
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-rose-600 dark:text-rose-400'
-                    : 'text-blue-600 dark:text-blue-400'
-                }`}>
-                  {matchedCatalogItem
-                    ? matchedCatalogItem.derivar
-                      ? 'ESTE RECLAMO SE DERIVA POR PAI'
-                      : 'ESTE RECLAMO NO SE DERIVA POR PAI'
-                    : 'SUBTIPO NO CATALOGADO'}
-                </h2>
-                <p className="text-sm sm:text-base md:text-lg font-semibold text-muted-foreground/90 max-w-2xl mx-auto leading-relaxed">
-                  {matchedCatalogItem
-                    ? matchedCatalogItem.derivar
-                      ? `El subtipo ${matchedCatalogItem.subtipo} está configurado para derivación automática.`
-                      : `El subtipo ${matchedCatalogItem.subtipo} no se debe derivar por este medio. Por favor, contactá a un supervisor.`
-                    : `El subtipo ${pdfInfo.subtipo || "Desconocido"} no está registrado en el catálogo. Por favor, verificá con un supervisor.`}
-                </p>
-                {matchedCatalogItem && matchedCatalogItem.derivar && matchedCatalogItem.comentarios && (
-                  <div className="mt-2 pt-2 border-t border-emerald-500/10 text-center max-w-3xl mx-auto">
-                    <p className="text-sm sm:text-base font-bold leading-relaxed text-emerald-950 dark:text-emerald-200">
-                      {matchedCatalogItem.comentarios}
+                <div className={`flex ${showDerivedAside ? 'flex-row items-stretch' : 'flex-col'}`}>
+                  <div className={`flex-1 min-w-0 py-5 px-4 sm:px-8 space-y-2 ${
+                    showDerivedAside ? 'text-left pr-3 sm:pr-6' : 'text-center px-6'
+                  }`}>
+                    <h2 className={`font-black tracking-tighter leading-tight ${
+                      showDerivedAside
+                        ? 'text-xl sm:text-4xl md:text-5xl'
+                        : 'text-3xl sm:text-4xl md:text-5xl'
+                    } ${
+                      matchedCatalogItem
+                        ? matchedCatalogItem.derivar
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-rose-600 dark:text-rose-400'
+                        : 'text-blue-600 dark:text-blue-400'
+                    }`}>
+                      {matchedCatalogItem
+                        ? matchedCatalogItem.derivar
+                          ? 'ESTE RECLAMO SE DERIVA POR PAI'
+                          : 'ESTE RECLAMO NO SE DERIVA POR PAI'
+                        : 'SUBTIPO NO CATALOGADO'}
+                    </h2>
+                    <p className={`text-sm sm:text-base md:text-lg font-semibold text-muted-foreground/90 leading-relaxed ${
+                      showDerivedAside ? 'max-w-2xl' : 'max-w-2xl mx-auto'
+                    }`}>
+                      {matchedCatalogItem
+                        ? matchedCatalogItem.derivar
+                          ? `El subtipo ${matchedCatalogItem.subtipo} está configurado para derivación automática.`
+                          : `El subtipo ${matchedCatalogItem.subtipo} no se debe derivar por este medio. Por favor, contactá a un supervisor.`
+                        : `El subtipo ${pdfInfo.subtipo || "Desconocido"} no está registrado en el catálogo. Por favor, verificá con un supervisor.`}
                     </p>
-                  </div>
-                )}
-                {matchedCatalogItem && matchedCatalogItem.derivar && alreadyDerivedInfo && (
-                  <div className="mt-3 max-w-3xl mx-auto rounded-2xl border border-emerald-500/20 bg-white/70 dark:bg-emerald-950/15 backdrop-blur-sm shadow-[0_14px_32px_-24px_rgba(16,185,129,0.7)] p-4 text-left">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 w-9 h-9 rounded-xl bg-emerald-500/12 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                        <CheckCircle className="w-4 h-4 text-emerald-700 dark:text-emerald-300" />
+                    {matchedCatalogItem && matchedCatalogItem.derivar && matchedCatalogItem.comentarios && (
+                      <div className={`mt-2 pt-2 border-t border-emerald-500/10 max-w-3xl ${
+                        showDerivedAside ? '' : 'mx-auto'
+                      }`}>
+                        <p className="text-sm sm:text-base font-bold leading-relaxed text-emerald-950 dark:text-emerald-200">
+                          {matchedCatalogItem.comentarios}
+                        </p>
                       </div>
-                      <div className="space-y-1">
-                        <p className="text-sm sm:text-base font-semibold text-emerald-900 dark:text-emerald-100 leading-tight">
-                          Este reclamo ya figura como derivado previamente.
+                    )}
+                  </div>
+
+                  {showDerivedAside && (
+                    <aside className="w-[8.75rem] sm:w-[17.5rem] lg:w-[19rem] shrink-0 border-l border-emerald-500/15 bg-white/60 dark:bg-emerald-950/25 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] px-3 sm:px-5 py-4 sm:py-5 flex flex-col justify-center gap-2 sm:gap-3">
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <span className="inline-flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-lg border border-emerald-500/25 bg-emerald-500/10 shrink-0">
+                          <History className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-700 dark:text-emerald-300" />
+                        </span>
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.12em] sm:tracking-[0.14em] text-emerald-800/70 dark:text-emerald-200/70 leading-tight">
+                          Envío previo
                         </p>
-                        <p className="text-xs sm:text-sm text-emerald-900/80 dark:text-emerald-100/80">
-                          Último envío registrado: {alreadyDerivedInfo.date} a las {alreadyDerivedInfo.time}.
+                      </div>
+
+                      <div className="space-y-0.5 sm:space-y-1">
+                        <p className="text-[11px] sm:text-sm font-semibold leading-snug text-emerald-950 dark:text-emerald-50">
+                          Ya derivado
                         </p>
-                        <p className="text-[11px] sm:text-xs text-emerald-900/70 dark:text-emerald-200/80">
+                        <div className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
+                          <span className="text-lg sm:text-2xl font-mono font-semibold tracking-tight text-emerald-800 dark:text-emerald-100 tabular-nums leading-none">
+                            {alreadyDerivedInfo.time}
+                          </span>
+                          <span className="text-[10px] sm:text-xs font-medium text-emerald-900/65 dark:text-emerald-100/65">
+                            {alreadyDerivedInfo.date}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="hidden sm:block space-y-1.5 pt-1 border-t border-emerald-500/10">
+                        <p className="text-[11px] text-emerald-900/70 dark:text-emerald-100/70 leading-relaxed">
                           {alreadyDerivedInfo.totalEnvios} envío{alreadyDerivedInfo.totalEnvios === 1 ? '' : 's'} exitoso{alreadyDerivedInfo.totalEnvios === 1 ? '' : 's'}
                           {' · '}
-                          {alreadyDerivedInfo.totalDestinatarios} destinatario{alreadyDerivedInfo.totalDestinatarios === 1 ? '' : 's'} distinto{alreadyDerivedInfo.totalDestinatarios === 1 ? '' : 's'}
-                          {alreadyDerivedInfo.destinatariosPreview.length > 0 && (
-                            <> · {alreadyDerivedInfo.destinatariosPreview.join(', ')}</>
-                          )}
+                          {alreadyDerivedInfo.totalDestinatarios} destinatario{alreadyDerivedInfo.totalDestinatarios === 1 ? '' : 's'}
                         </p>
+                        {alreadyDerivedInfo.destinatariosPreview.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {alreadyDerivedInfo.destinatariosPreview.map((name) => (
+                              <span
+                                key={name}
+                                className="inline-flex max-w-full truncate rounded-md border border-emerald-500/15 bg-emerald-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-emerald-900/80 dark:text-emerald-100/80"
+                              >
+                                {name}
+                              </span>
+                            ))}
+                            {alreadyDerivedInfo.totalDestinatarios > alreadyDerivedInfo.destinatariosPreview.length && (
+                              <span className="inline-flex rounded-md border border-emerald-500/15 bg-emerald-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-emerald-900/60 dark:text-emerald-100/60">
+                                +{alreadyDerivedInfo.totalDestinatarios - alreadyDerivedInfo.destinatariosPreview.length}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  </div>
-                )}
+                    </aside>
+                  )}
+                </div>
               </div>
             );
           })()
