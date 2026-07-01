@@ -564,7 +564,6 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
   }, [pdfInfo.subtipo, subtypesCatalog]);
 
   const alreadyDerivedInfo = useMemo(() => {
-    if (!matchedCatalogItem?.derivar) return null;
     const solicitudKey = normalizeSolicitudKey(pdfInfo.solicitudNro);
     if (!solicitudKey || !shipments.length) return null;
 
@@ -600,7 +599,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
       totalDestinatarios: uniqueRecipients.length,
       destinatariosPreview: uniqueRecipients.slice(0, 2)
     };
-  }, [matchedCatalogItem, pdfInfo.solicitudNro, shipments]);
+  }, [pdfInfo.solicitudNro, shipments]);
 
   // Propagate derivation status to the parent App component
   useEffect(() => {
@@ -723,7 +722,8 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                 </div>
               );
             }
-            const showDerivedAside = matchedCatalogItem?.derivar && alreadyDerivedInfo;
+            const showDerivedAside = !!alreadyDerivedInfo;
+            const derivedAsideTone = matchedCatalogItem?.derivar ? 'emerald' : 'archive';
 
             return (
               <div className={`rounded-2xl border transition-all duration-300 msf-title-banner overflow-hidden ${
@@ -775,32 +775,66 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                   </div>
 
                   {showDerivedAside && (
-                    <aside className="w-[8.75rem] sm:w-[17.5rem] lg:w-[19rem] shrink-0 border-l border-emerald-500/15 bg-white/60 dark:bg-emerald-950/25 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] px-3 sm:px-5 py-4 sm:py-5 flex flex-col justify-center gap-2 sm:gap-3">
+                    <aside className={`w-[8.75rem] sm:w-[17.5rem] lg:w-[19rem] shrink-0 border-l backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] px-3 sm:px-5 py-4 sm:py-5 flex flex-col justify-center gap-2 sm:gap-3 ${
+                      derivedAsideTone === 'emerald'
+                        ? 'border-emerald-500/15 bg-white/60 dark:bg-emerald-950/25'
+                        : 'border-[#003b73]/15 bg-white/75 dark:bg-slate-950/30'
+                    }`}>
                       <div className="flex items-center gap-1.5 sm:gap-2">
-                        <span className="inline-flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-lg border border-emerald-500/25 bg-emerald-500/10 shrink-0">
-                          <History className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-700 dark:text-emerald-300" />
+                        <span className={`inline-flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-lg border shrink-0 ${
+                          derivedAsideTone === 'emerald'
+                            ? 'border-emerald-500/25 bg-emerald-500/10'
+                            : 'border-[#003b73]/20 bg-[#003b73]/8'
+                        }`}>
+                          <History className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${
+                            derivedAsideTone === 'emerald'
+                              ? 'text-emerald-700 dark:text-emerald-300'
+                              : 'text-[#003b73] dark:text-sky-300'
+                          }`} />
                         </span>
-                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.12em] sm:tracking-[0.14em] text-emerald-800/70 dark:text-emerald-200/70 leading-tight">
+                        <p className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.12em] sm:tracking-[0.14em] leading-tight ${
+                          derivedAsideTone === 'emerald'
+                            ? 'text-emerald-800/70 dark:text-emerald-200/70'
+                            : 'text-[#003b73]/70 dark:text-sky-200/70'
+                        }`}>
                           Envío previo
                         </p>
                       </div>
 
                       <div className="space-y-0.5 sm:space-y-1">
-                        <p className="text-[11px] sm:text-sm font-semibold leading-snug text-emerald-950 dark:text-emerald-50">
+                        <p className={`text-[11px] sm:text-sm font-semibold leading-snug ${
+                          derivedAsideTone === 'emerald'
+                            ? 'text-emerald-950 dark:text-emerald-50'
+                            : 'text-slate-900 dark:text-slate-100'
+                        }`}>
                           Ya derivado
                         </p>
                         <div className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
-                          <span className="text-lg sm:text-2xl font-mono font-semibold tracking-tight text-emerald-800 dark:text-emerald-100 tabular-nums leading-none">
+                          <span className={`text-lg sm:text-2xl font-mono font-semibold tracking-tight tabular-nums leading-none ${
+                            derivedAsideTone === 'emerald'
+                              ? 'text-emerald-800 dark:text-emerald-100'
+                              : 'text-[#003b73] dark:text-sky-100'
+                          }`}>
                             {alreadyDerivedInfo.time}
                           </span>
-                          <span className="text-[10px] sm:text-xs font-medium text-emerald-900/65 dark:text-emerald-100/65">
+                          <span className={`text-[10px] sm:text-xs font-medium ${
+                            derivedAsideTone === 'emerald'
+                              ? 'text-emerald-900/65 dark:text-emerald-100/65'
+                              : 'text-slate-700/70 dark:text-slate-200/70'
+                          }`}>
                             {alreadyDerivedInfo.date}
                           </span>
                         </div>
                       </div>
 
-                      <div className="hidden sm:block space-y-1.5 pt-1 border-t border-emerald-500/10">
-                        <p className="text-[11px] text-emerald-900/70 dark:text-emerald-100/70 leading-relaxed">
+                      <div className={`hidden sm:block space-y-1.5 pt-1 border-t ${
+                        derivedAsideTone === 'emerald' ? 'border-emerald-500/10' : 'border-[#003b73]/10'
+                      }`}>
+                        <p className={`text-[11px] leading-relaxed ${
+                          derivedAsideTone === 'emerald'
+                            ? 'text-emerald-900/70 dark:text-emerald-100/70'
+                            : 'text-slate-700/75 dark:text-slate-200/75'
+                        }`}>
                           {alreadyDerivedInfo.totalEnvios} envío{alreadyDerivedInfo.totalEnvios === 1 ? '' : 's'} exitoso{alreadyDerivedInfo.totalEnvios === 1 ? '' : 's'}
                           {' · '}
                           {alreadyDerivedInfo.totalDestinatarios} destinatario{alreadyDerivedInfo.totalDestinatarios === 1 ? '' : 's'}
@@ -810,13 +844,21 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                             {alreadyDerivedInfo.destinatariosPreview.map((name) => (
                               <span
                                 key={name}
-                                className="inline-flex max-w-full truncate rounded-md border border-emerald-500/15 bg-emerald-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-emerald-900/80 dark:text-emerald-100/80"
+                                className={`inline-flex max-w-full truncate rounded-md border px-2 py-0.5 text-[10px] font-medium ${
+                                  derivedAsideTone === 'emerald'
+                                    ? 'border-emerald-500/15 bg-emerald-500/[0.06] text-emerald-900/80 dark:text-emerald-100/80'
+                                    : 'border-[#003b73]/12 bg-[#003b73]/[0.05] text-slate-800/85 dark:text-slate-100/85'
+                                }`}
                               >
                                 {name}
                               </span>
                             ))}
                             {alreadyDerivedInfo.totalDestinatarios > alreadyDerivedInfo.destinatariosPreview.length && (
-                              <span className="inline-flex rounded-md border border-emerald-500/15 bg-emerald-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-emerald-900/60 dark:text-emerald-100/60">
+                              <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-medium ${
+                                derivedAsideTone === 'emerald'
+                                  ? 'border-emerald-500/15 bg-emerald-500/[0.06] text-emerald-900/60 dark:text-emerald-100/60'
+                                  : 'border-[#003b73]/12 bg-[#003b73]/[0.05] text-slate-700/70 dark:text-slate-200/70'
+                              }`}>
                                 +{alreadyDerivedInfo.totalDestinatarios - alreadyDerivedInfo.destinatariosPreview.length}
                               </span>
                             )}
