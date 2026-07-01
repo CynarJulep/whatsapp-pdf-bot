@@ -133,6 +133,7 @@ const supabase    = createClient(supabaseUrl, supabaseKey);
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const initials = (name = '') => name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
 const formatBytes = (b) => b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1048576).toFixed(2)} MB`;
+const normalizeSolicitudKey = (value = '') => String(value).replace(/[^0-9a-z]/gi, '').toLowerCase();
 const normalizePhone = (raw) => {
   let p = raw.replace(/\D/g, '');
   if (p.length === 10 && /^[123]/.test(p)) p = '549' + p;
@@ -461,7 +462,7 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
 }
 
 // ── Step 1: Preview + Contact Picker (split layout) ────────────────────────────
-function PreviewAndPick({ file, contacts, groups = [], subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
+function PreviewAndPick({ file, contacts, groups = [], shipments = [], subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
   const [extracting, setExtracting] = useState(true);
@@ -561,6 +562,45 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
       item => item.subtipo.trim().toLowerCase() === cleanSub
     );
   }, [pdfInfo.subtipo, subtypesCatalog]);
+
+  const alreadyDerivedInfo = useMemo(() => {
+    if (!matchedCatalogItem?.derivar) return null;
+    const solicitudKey = normalizeSolicitudKey(pdfInfo.solicitudNro);
+    if (!solicitudKey || !shipments.length) return null;
+
+    const sentMatches = shipments.filter((shipment) => (
+      shipment.status === 'success' &&
+      normalizeSolicitudKey(shipment.solicitud_nro) === solicitudKey
+    ));
+
+    if (sentMatches.length === 0) return null;
+
+    const sortedByDate = [...sentMatches].sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+    const latestShipment = sortedByDate[0];
+    const latestDateObj = latestShipment.created_at ? new Date(latestShipment.created_at) : null;
+
+    const uniqueRecipients = Array.from(
+      new Set(
+        sentMatches
+          .map((shipment) => (shipment.contact_name || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    return {
+      date: latestDateObj
+        ? latestDateObj.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : 'Fecha no disponible',
+      time: latestDateObj
+        ? latestDateObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+        : 'Hora no disponible',
+      totalEnvios: sentMatches.length,
+      totalDestinatarios: uniqueRecipients.length,
+      destinatariosPreview: uniqueRecipients.slice(0, 2)
+    };
+  }, [matchedCatalogItem, pdfInfo.solicitudNro, shipments]);
 
   // Propagate derivation status to the parent App component
   useEffect(() => {
@@ -716,6 +756,31 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                     <p className="text-sm sm:text-base font-bold leading-relaxed text-emerald-950 dark:text-emerald-200">
                       {matchedCatalogItem.comentarios}
                     </p>
+                  </div>
+                )}
+                {matchedCatalogItem && matchedCatalogItem.derivar && alreadyDerivedInfo && (
+                  <div className="mt-3 max-w-3xl mx-auto rounded-2xl border border-emerald-500/20 bg-white/70 dark:bg-emerald-950/15 backdrop-blur-sm shadow-[0_14px_32px_-24px_rgba(16,185,129,0.7)] p-4 text-left">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 w-9 h-9 rounded-xl bg-emerald-500/12 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                        <CheckCircle className="w-4 h-4 text-emerald-700 dark:text-emerald-300" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm sm:text-base font-semibold text-emerald-900 dark:text-emerald-100 leading-tight">
+                          Este reclamo ya figura como derivado previamente.
+                        </p>
+                        <p className="text-xs sm:text-sm text-emerald-900/80 dark:text-emerald-100/80">
+                          Último envío registrado: {alreadyDerivedInfo.date} a las {alreadyDerivedInfo.time}.
+                        </p>
+                        <p className="text-[11px] sm:text-xs text-emerald-900/70 dark:text-emerald-200/80">
+                          {alreadyDerivedInfo.totalEnvios} envío{alreadyDerivedInfo.totalEnvios === 1 ? '' : 's'} exitoso{alreadyDerivedInfo.totalEnvios === 1 ? '' : 's'}
+                          {' · '}
+                          {alreadyDerivedInfo.totalDestinatarios} destinatario{alreadyDerivedInfo.totalDestinatarios === 1 ? '' : 's'} distinto{alreadyDerivedInfo.totalDestinatarios === 1 ? '' : 's'}
+                          {alreadyDerivedInfo.destinatariosPreview.length > 0 && (
+                            <> · {alreadyDerivedInfo.destinatariosPreview.join(', ')}</>
+                          )}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2449,6 +2514,7 @@ export default function App() {
                 file={file} 
                 contacts={loadingContacts ? [] : contacts}
                 groups={loadingGroups ? [] : groups}
+                shipments={shipments}
                 subtypesCatalog={subtypesCatalog}
                 onAddSubtipoToCatalog={handleAddSubtipoToCatalog}
                 onBack={() => {
