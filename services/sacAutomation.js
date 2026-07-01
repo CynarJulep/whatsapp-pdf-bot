@@ -43,6 +43,119 @@ async function waitForFirst(page, selectors, timeout = 15000) {
   throw new Error(`No se encontró ningún selector válido: ${selectors.join(', ')}`);
 }
 
+function getSearchScopes(page) {
+  const main = page.mainFrame();
+  const children = page.frames().filter((frame) => frame !== main);
+  return [main, ...children];
+}
+
+function describeScope(scope) {
+  try {
+    return scope.url();
+  } catch (_) {
+    return '[scope-sin-url]';
+  }
+}
+
+function buildDetailedSelectorError(selectors, scopes) {
+  const scopeList = scopes.map((scope) => describeScope(scope)).join(' | ');
+  return `No se encontró ningún selector válido: ${selectors.join(', ')}. Scopes inspeccionados: ${scopeList}`;
+}
+
+async function waitForFirstInScopes(scopes, selectors, timeout = 15000) {
+  for (const scope of scopes) {
+    for (const selector of selectors) {
+      try {
+        const locator = scope.locator(selector).first();
+        await locator.waitFor({ state: 'visible', timeout });
+        return { locator, scope, selector };
+      } catch (_) {
+        // Try next selector/scope
+      }
+    }
+  }
+  throw new Error(buildDetailedSelectorError(selectors, scopes));
+}
+
+function buildControlHaystack(meta) {
+  return [
+    meta.name,
+    meta.id,
+    meta.placeholder,
+    meta.ariaLabel,
+    meta.title,
+    meta.labelsText,
+    meta.closestText
+  ].join(' ').toLowerCase();
+}
+
+async function findControlByHints(scopes, options) {
+  const { selector, hints, tagConstraint = null } = options;
+  const normalizedHints = hints.map((hint) => hint.toLowerCase());
+  let best = null;
+
+  for (const scope of scopes) {
+    const controls = scope.locator(selector);
+    const count = await controls.count();
+    for (let i = 0; i < count; i += 1) {
+      const locator = controls.nth(i);
+      const meta = await locator.evaluate((element) => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        const isVisible = style.visibility !== 'hidden'
+          && style.display !== 'none'
+          && rect.width > 0
+          && rect.height > 0;
+
+        const labels = [];
+        if (element.labels) {
+          for (const label of Array.from(element.labels)) {
+            labels.push((label.textContent || '').trim());
+          }
+        }
+
+        if (element.id) {
+          const forLabel = document.querySelector(`label[for="${element.id}"]`);
+          if (forLabel) labels.push((forLabel.textContent || '').trim());
+        }
+
+        const closest = element.closest('tr, td, .form-group, .campo, .row, form, fieldset, div');
+        return {
+          tag: element.tagName.toLowerCase(),
+          type: (element.getAttribute('type') || '').toLowerCase(),
+          name: element.getAttribute('name') || '',
+          id: element.id || '',
+          placeholder: element.getAttribute('placeholder') || '',
+          ariaLabel: element.getAttribute('aria-label') || '',
+          title: element.getAttribute('title') || '',
+          labelsText: labels.join(' '),
+          closestText: (closest?.textContent || '').slice(0, 220),
+          isVisible,
+          disabled: !!element.disabled
+        };
+      });
+
+      if (!meta.isVisible || meta.disabled) continue;
+      if (meta.type === 'hidden') continue;
+      if (tagConstraint && meta.tag !== tagConstraint) continue;
+
+      const haystack = buildControlHaystack(meta);
+      let score = 0;
+      for (const hint of normalizedHints) {
+        if (haystack.includes(hint)) score += 1;
+      }
+
+      if (score <= 0) continue;
+
+      if (!best || score > best.score) {
+        best = { locator, scope, score };
+      }
+    }
+  }
+
+  return best;
+}
+
 async function maybeFill(locator, value) {
   if (!locator) return;
   await locator.click({ timeout: 5000 });
@@ -108,9 +221,9 @@ function buildClaimRegex(numeroReclamo, anio) {
   return new RegExp(`${numero}\\s*[-/]\\s*${year}`);
 }
 
-async function openClaimDetail(page, numeroReclamo, anio) {
+async function openClaimDetail(scope, numeroReclamo, anio) {
   const claimRegex = buildClaimRegex(numeroReclamo, anio);
-  const directClaimLink = page.locator('a', { hasText: claimRegex }).first();
+  const directClaimLink = scope.locator('a', { hasText: claimRegex }).first();
 
   if (await directClaimLink.count()) {
     await Promise.all([
@@ -120,7 +233,7 @@ async function openClaimDetail(page, numeroReclamo, anio) {
     return;
   }
 
-  const fallbackLink = page.locator('a[href*="/solicitud/ver.do"]').first();
+  const fallbackLink = scope.locator('a[href*="/solicitud/ver.do"]').first();
   if (await fallbackLink.count()) {
     await Promise.all([
       page.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
@@ -132,8 +245,8 @@ async function openClaimDetail(page, numeroReclamo, anio) {
   throw new Error(`No se encontró el reclamo ${numeroReclamo}/${anio} en los resultados de búsqueda`);
 }
 
-async function triggerPdfDownload({ page, context, numeroReclamo, timeoutMs }) {
-  const printButton = page.locator('input[type="button"][value="Imprimir"], button:has-text("Imprimir")').first();
+async function triggerPdfDownload({ page, scope, context, numeroReclamo, timeoutMs }) {
+  const printButton = scope.locator('input[type="button"][value="Imprimir"], button:has-text("Imprimir")').first();
   if (await printButton.count()) {
     try {
       const popupPromise = page.waitForEvent('popup', { timeout: 12000 }).catch(() => null);
@@ -167,7 +280,7 @@ async function triggerPdfDownload({ page, context, numeroReclamo, timeoutMs }) {
   ];
 
   for (const selector of pdfTriggerSelectors) {
-    const locator = page.locator(selector).first();
+    const locator = scope.locator(selector).first();
     const count = await locator.count();
     if (!count) continue;
 
@@ -185,7 +298,7 @@ async function triggerPdfDownload({ page, context, numeroReclamo, timeoutMs }) {
     }
   }
 
-  const hrefCandidates = await page.$$eval('a[href]', (anchors) =>
+  const hrefCandidates = await scope.$$eval('a[href]', (anchors) =>
     anchors
       .map((anchor) => anchor.getAttribute('href') || '')
       .filter((href) => href && /(pdf|imprimir|certificado)/i.test(href))
@@ -244,46 +357,108 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
 
     await ensureLoggedIn(page, context, usuario, contrasena);
 
-    const numeroInput = await waitForFirst(page, [
-      'input[name="nroSolicitud"]',
-      'input[name="numeroSolicitud"]',
-      'input[name="numero"]',
-      'input[id*="solicitud"]',
-      'input[name*="solicitud"]'
-    ]);
+    const scopes = getSearchScopes(page);
+    let activeScope = page.mainFrame();
 
-    const anioInput = await waitForFirst(page, [
-      'select[name="anioSolicitud"]',
-      'input[name="anio"]',
-      'select[name="anio"]',
-      'input[id*="anio"]',
-      'select[id*="anio"]'
-    ]);
+    let numeroInput;
+    try {
+      const foundNumero = await waitForFirstInScopes(scopes, [
+        'input[name="nroSolicitud"]',
+        'input[name="numeroSolicitud"]',
+        'input[name="numero"]',
+        'input[name*="solicitud"]',
+        'input[id*="solicitud"]',
+        'input[name*="reclamo"]',
+        'input[id*="reclamo"]'
+      ]);
+      numeroInput = foundNumero.locator;
+      activeScope = foundNumero.scope;
+    } catch (_) {
+      const guessedNumero = await findControlByHints(scopes, {
+        selector: 'input, textarea',
+        hints: ['solicitud', 'reclamo', 'numero', 'nro']
+      });
+      if (!guessedNumero) {
+        throw new Error(buildDetailedSelectorError([
+          'input[name="nroSolicitud"]',
+          'input[name="numeroSolicitud"]',
+          'input[name="numero"]',
+          'input[name*="solicitud"]',
+          'input[id*="solicitud"]',
+          'input[name*="reclamo"]',
+          'input[id*="reclamo"]'
+        ], scopes));
+      }
+      numeroInput = guessedNumero.locator;
+      activeScope = guessedNumero.scope;
+      console.log(`[SAC] Campo número detectado por heurística en scope: ${describeScope(activeScope)}`);
+    }
+
+    let anioInput;
+    try {
+      const foundAnio = await waitForFirst(activeScope, [
+        'select[name="anioSolicitud"]',
+        'input[name="anioSolicitud"]',
+        'input[name="anio"]',
+        'select[name="anio"]',
+        'input[id*="anio"]',
+        'select[id*="anio"]'
+      ]);
+      anioInput = foundAnio;
+    } catch (_) {
+      const guessedAnio = await findControlByHints([activeScope], {
+        selector: 'select, input',
+        hints: ['anio', 'año', 'ejercicio']
+      });
+      if (guessedAnio) {
+        anioInput = guessedAnio.locator;
+        console.log(`[SAC] Campo año detectado por heurística en scope: ${describeScope(activeScope)}`);
+      }
+    }
 
     await maybeFill(numeroInput, numeroReclamo);
 
-    const anioTag = await anioInput.evaluate((el) => el.tagName.toLowerCase());
-    if (anioTag === 'select') {
-      await anioInput.selectOption(String(anio));
+    if (anioInput) {
+      const anioTag = await anioInput.evaluate((el) => el.tagName.toLowerCase());
+      if (anioTag === 'select') {
+        await anioInput.selectOption(String(anio));
+      } else {
+        await maybeFill(anioInput, anio);
+      }
     } else {
-      await maybeFill(anioInput, anio);
+      console.warn('[SAC] No se detectó campo de año. Se continúa con valor por defecto del formulario.');
     }
 
-    const buscarButton = await waitForFirst(page, [
-      'input[type="button"][value*="Buscar"]',
-      'button:has-text("Buscar")',
-      'input[name="buscar"]'
-    ]);
+    let buscarButton;
+    try {
+      buscarButton = await waitForFirst(activeScope, [
+        'input[type="button"][value*="Buscar"]',
+        'input[type="submit"][value*="Buscar"]',
+        'button:has-text("Buscar")',
+        'input[name="buscar"]'
+      ]);
+    } catch (_) {
+      const guessedButton = await findControlByHints([activeScope], {
+        selector: 'button, input[type="button"], input[type="submit"]',
+        hints: ['buscar', 'consultar', 'aceptar']
+      });
+      if (!guessedButton) {
+        throw new Error(`No se pudo encontrar el botón de búsqueda en el formulario SAC (${describeScope(activeScope)})`);
+      }
+      buscarButton = guessedButton.locator;
+      console.log('[SAC] Botón de búsqueda detectado por heurística.');
+    }
 
     await Promise.all([
       page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
       buscarButton.click()
     ]);
 
-    await openClaimDetail(page, numeroReclamo, anio);
+    await openClaimDetail(activeScope, numeroReclamo, anio);
 
     const { pdfBuffer, suggestedFileName } = await triggerPdfDownload({
       page,
+      scope: activeScope,
       context,
       numeroReclamo,
       timeoutMs: SAC_TIMEOUT_MS
