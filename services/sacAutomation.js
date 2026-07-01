@@ -222,12 +222,13 @@ function buildClaimRegex(numeroReclamo, anio) {
 }
 
 async function openClaimDetail(scope, numeroReclamo, anio) {
+  const activePage = typeof scope.page === 'function' ? scope.page() : scope;
   const claimRegex = buildClaimRegex(numeroReclamo, anio);
   const directClaimLink = scope.locator('a', { hasText: claimRegex }).first();
 
   if (await directClaimLink.count()) {
     await Promise.all([
-      page.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
+      activePage.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
       directClaimLink.click()
     ]);
     return;
@@ -236,7 +237,7 @@ async function openClaimDetail(scope, numeroReclamo, anio) {
   const fallbackLink = scope.locator('a[href*="/solicitud/ver.do"]').first();
   if (await fallbackLink.count()) {
     await Promise.all([
-      page.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
+      activePage.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
       fallbackLink.click()
     ]);
     return;
@@ -357,29 +358,13 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
 
     await ensureLoggedIn(page, context, usuario, contrasena);
 
-    const scopes = getSearchScopes(page);
-    let activeScope = page.mainFrame();
+    const resolveSearchForm = async () => {
+      const scopes = getSearchScopes(page);
+      let activeScope = page.mainFrame();
 
-    let numeroInput;
-    try {
-      const foundNumero = await waitForFirstInScopes(scopes, [
-        'input[name="nroSolicitud"]',
-        'input[name="numeroSolicitud"]',
-        'input[name="numero"]',
-        'input[name*="solicitud"]',
-        'input[id*="solicitud"]',
-        'input[name*="reclamo"]',
-        'input[id*="reclamo"]'
-      ]);
-      numeroInput = foundNumero.locator;
-      activeScope = foundNumero.scope;
-    } catch (_) {
-      const guessedNumero = await findControlByHints(scopes, {
-        selector: 'input, textarea',
-        hints: ['solicitud', 'reclamo', 'numero', 'nro']
-      });
-      if (!guessedNumero) {
-        throw new Error(buildDetailedSelectorError([
+      let numeroInput;
+      try {
+        const foundNumero = await waitForFirstInScopes(scopes, [
           'input[name="nroSolicitud"]',
           'input[name="numeroSolicitud"]',
           'input[name="numero"]',
@@ -387,34 +372,88 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
           'input[id*="solicitud"]',
           'input[name*="reclamo"]',
           'input[id*="reclamo"]'
-        ], scopes));
+        ], 25000);
+        numeroInput = foundNumero.locator;
+        activeScope = foundNumero.scope;
+      } catch (_) {
+        const guessedNumero = await findControlByHints(scopes, {
+          selector: 'input, textarea',
+          hints: ['solicitud', 'reclamo', 'numero', 'nro']
+        });
+        if (!guessedNumero) {
+          throw new Error(buildDetailedSelectorError([
+            'input[name="nroSolicitud"]',
+            'input[name="numeroSolicitud"]',
+            'input[name="numero"]',
+            'input[name*="solicitud"]',
+            'input[id*="solicitud"]',
+            'input[name*="reclamo"]',
+            'input[id*="reclamo"]'
+          ], scopes));
+        }
+        numeroInput = guessedNumero.locator;
+        activeScope = guessedNumero.scope;
+        console.log(`[SAC] Campo número detectado por heurística en scope: ${describeScope(activeScope)}`);
       }
-      numeroInput = guessedNumero.locator;
-      activeScope = guessedNumero.scope;
-      console.log(`[SAC] Campo número detectado por heurística en scope: ${describeScope(activeScope)}`);
+
+      let anioInput;
+      try {
+        const foundAnio = await waitForFirst(activeScope, [
+          'select[name="anioSolicitud"]',
+          'input[name="anioSolicitud"]',
+          'input[name="anio"]',
+          'select[name="anio"]',
+          'input[id*="anio"]',
+          'select[id*="anio"]'
+        ]);
+        anioInput = foundAnio;
+      } catch (_) {
+        const guessedAnio = await findControlByHints([activeScope], {
+          selector: 'select, input',
+          hints: ['anio', 'año', 'ejercicio']
+        });
+        if (guessedAnio) {
+          anioInput = guessedAnio.locator;
+          console.log(`[SAC] Campo año detectado por heurística en scope: ${describeScope(activeScope)}`);
+        }
+      }
+
+      let buscarButton;
+      try {
+        buscarButton = await waitForFirst(activeScope, [
+          'input[type="button"][value*="Buscar"]',
+          'input[type="submit"][value*="Buscar"]',
+          'button:has-text("Buscar")',
+          'input[name="buscar"]'
+        ]);
+      } catch (_) {
+        const guessedButton = await findControlByHints([activeScope], {
+          selector: 'button, input[type="button"], input[type="submit"]',
+          hints: ['buscar', 'consultar', 'aceptar']
+        });
+        if (!guessedButton) {
+          throw new Error(`No se pudo encontrar el botón de búsqueda en el formulario SAC (${describeScope(activeScope)})`);
+        }
+        buscarButton = guessedButton.locator;
+        console.log('[SAC] Botón de búsqueda detectado por heurística.');
+      }
+
+      return { numeroInput, anioInput, buscarButton, activeScope };
+    };
+
+    let form;
+    try {
+      form = await resolveSearchForm();
+    } catch (firstError) {
+      console.warn(`[SAC] No se pudo detectar el formulario de búsqueda al primer intento: ${firstError.message}`);
+      console.warn('[SAC] Reintentando con login forzado y refresco completo de sesión...');
+      await performLogin(page, usuario, contrasena);
+      await saveSessionState(context);
+      await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
+      form = await resolveSearchForm();
     }
 
-    let anioInput;
-    try {
-      const foundAnio = await waitForFirst(activeScope, [
-        'select[name="anioSolicitud"]',
-        'input[name="anioSolicitud"]',
-        'input[name="anio"]',
-        'select[name="anio"]',
-        'input[id*="anio"]',
-        'select[id*="anio"]'
-      ]);
-      anioInput = foundAnio;
-    } catch (_) {
-      const guessedAnio = await findControlByHints([activeScope], {
-        selector: 'select, input',
-        hints: ['anio', 'año', 'ejercicio']
-      });
-      if (guessedAnio) {
-        anioInput = guessedAnio.locator;
-        console.log(`[SAC] Campo año detectado por heurística en scope: ${describeScope(activeScope)}`);
-      }
-    }
+    const { numeroInput, anioInput, buscarButton, activeScope } = form;
 
     await maybeFill(numeroInput, numeroReclamo);
 
@@ -427,26 +466,6 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
       }
     } else {
       console.warn('[SAC] No se detectó campo de año. Se continúa con valor por defecto del formulario.');
-    }
-
-    let buscarButton;
-    try {
-      buscarButton = await waitForFirst(activeScope, [
-        'input[type="button"][value*="Buscar"]',
-        'input[type="submit"][value*="Buscar"]',
-        'button:has-text("Buscar")',
-        'input[name="buscar"]'
-      ]);
-    } catch (_) {
-      const guessedButton = await findControlByHints([activeScope], {
-        selector: 'button, input[type="button"], input[type="submit"]',
-        hints: ['buscar', 'consultar', 'aceptar']
-      });
-      if (!guessedButton) {
-        throw new Error(`No se pudo encontrar el botón de búsqueda en el formulario SAC (${describeScope(activeScope)})`);
-      }
-      buscarButton = guessedButton.locator;
-      console.log('[SAC] Botón de búsqueda detectado por heurística.');
     }
 
     await Promise.all([
