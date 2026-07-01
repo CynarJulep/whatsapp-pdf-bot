@@ -10,4 +10,5 @@ dist/
 package-lock.json
 seed_contacts.js
 contacts.vcf
+.sac-session/
 

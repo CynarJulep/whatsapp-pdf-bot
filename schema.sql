@@ -152,3 +152,29 @@ ALTER TABLE public.shipments
     ADD COLUMN IF NOT EXISTS file_name TEXT,
     ADD COLUMN IF NOT EXISTS usuario_carga TEXT;
 
+-- 7. Jobs de automatización SAC (reclamo único PDF)
+CREATE TABLE IF NOT EXISTS public.sac_jobs (
+    id TEXT PRIMARY KEY,
+    numero_reclamo TEXT NOT NULL,
+    anio INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'ready', 'failed')),
+    error_message TEXT,
+    storage_path TEXT,
+    file_name TEXT,
+    public_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP WITH TIME ZONE,
+    finished_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sac_jobs_lookup ON public.sac_jobs (numero_reclamo, anio, status);
+CREATE INDEX IF NOT EXISTS idx_sac_jobs_created ON public.sac_jobs (created_at DESC);
+
+ALTER TABLE public.sac_jobs ENABLE ROW LEVEL SECURITY;
+
+-- Consulta limitada desde frontend interno
+CREATE POLICY "Allow public read of sac_jobs"
+ON public.sac_jobs FOR SELECT
+TO anon, authenticated
+USING (true);
+

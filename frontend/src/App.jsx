@@ -26,6 +26,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 import SubtypesCatalogDialog from '@/components/SubtypesCatalogDialog';
 
@@ -127,6 +128,7 @@ const getParam = (param, def) => {
 const supabaseUrl = getParam('supabase_url', DEFAULT_SUPABASE_URL);
 const supabaseKey = getParam('supabase_anon_key', DEFAULT_SUPABASE_ANON_KEY);
 const _configuredBackendUrl = getParam('railway_url', null);
+const sacAutomationToken = getParam('sac_automation_token', '');
 const backendUrl  = _configuredBackendUrl || '/api';
 const supabase    = createClient(supabaseUrl, supabaseKey);
 
@@ -2082,6 +2084,26 @@ export default function App() {
   const [catalogPrefill, setCatalogPrefill] = useState(null);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [derivationStatus, setDerivationStatus] = useState(null); // 'derivar' | 'no-derivar' | 'no-catalogado' | null
+  const [sacNumeroReclamo, setSacNumeroReclamo] = useState('');
+  const [sacAnio, setSacAnio] = useState('2026');
+  const [sacJob, setSacJob] = useState(null);
+  const [sacSubmitting, setSacSubmitting] = useState(false);
+  const [sacLoadingPdf, setSacLoadingPdf] = useState(false);
+  const [sacAutoLoadedJobId, setSacAutoLoadedJobId] = useState(null);
+  const [sacPanelOpen, setSacPanelOpen] = useState(false);
+
+  const sacOverlayVisible = sacSubmitting
+    || sacLoadingPdf
+    || sacJob?.status === 'queued'
+    || sacJob?.status === 'running';
+
+  const sacOverlayMessage = useMemo(() => {
+    if (sacLoadingPdf) return 'Preparando el PDF para derivación…';
+    if (sacSubmitting) return 'Iniciando búsqueda en SAC…';
+    if (sacJob?.status === 'queued') return 'En cola — preparando automatización…';
+    if (sacJob?.status === 'running') return 'Buscando reclamo y descargando PDF…';
+    return 'Procesando…';
+  }, [sacSubmitting, sacLoadingPdf, sacJob?.status]);
 
   const filteredShipments = useMemo(() => {
     if (!historySearch.trim()) return shipments;
@@ -2100,6 +2122,12 @@ export default function App() {
   const handleOpenConfig = () => {
     setConfigTab(botStatus.connected ? 'contacts' : 'status');
     setConfigOpen(true);
+  };
+
+  const sacHeaders = () => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (sacAutomationToken) headers['x-sac-automation-token'] = sacAutomationToken;
+    return headers;
   };
 
   useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
@@ -2228,12 +2256,150 @@ export default function App() {
     }
   };
 
+  const handleStartSacLookup = async () => {
+    const numeroReclamo = sacNumeroReclamo.trim();
+    const anio = Number(sacAnio || 2026);
+
+    if (!numeroReclamo) {
+      showToast('Ingresá un número de reclamo para buscar en SAC.', 'error');
+      return;
+    }
+    if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+      showToast('El año debe ser un número válido (ej: 2026).', 'error');
+      return;
+    }
+
+    setSacSubmitting(true);
+    try {
+      const res = await fetch(`${backendUrl}/sac/fetch-single-claim`, {
+        method: 'POST',
+        headers: sacHeaders(),
+        body: JSON.stringify({ numeroReclamo, anio })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success || !data?.job) {
+        throw new Error(data?.message || 'No se pudo iniciar la búsqueda en SAC.');
+      }
+      setSacJob(data.job);
+      showToast(data.reused ? 'Se reutilizó un job de SAC en curso.' : 'Búsqueda en SAC iniciada.');
+    } catch (error) {
+      showToast(error.message || 'Error iniciando la búsqueda en SAC.', 'error');
+    } finally {
+      setSacSubmitting(false);
+    }
+  };
+
+  const fetchSacJob = useCallback(async (jobId) => {
+    if (!jobId) return null;
+    const res = await fetch(`${backendUrl}/sac/jobs/${jobId}`, {
+      headers: sacAutomationToken ? { 'x-sac-automation-token': sacAutomationToken } : undefined
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.success || !data?.job) {
+      throw new Error(data?.message || 'No se pudo consultar el job de SAC.');
+    }
+    return data.job;
+  }, []);
+
+  const buildFileFromSacJob = useCallback(async (job) => {
+    if (!job?.storagePath) {
+      throw new Error('El PDF todavía no está listo en Storage.');
+    }
+
+    let blob;
+    if (job.publicUrl) {
+      const res = await fetch(job.publicUrl, { cache: 'no-store' });
+      if (!res.ok) throw new Error('No se pudo descargar el PDF público desde Storage.');
+      blob = await res.blob();
+    } else {
+      const { data, error } = await supabase.storage.from('pdfs').download(job.storagePath);
+      if (error || !data) throw new Error(error?.message || 'No se pudo descargar el PDF desde Storage.');
+      blob = data instanceof Blob ? data : new Blob([data], { type: 'application/pdf' });
+    }
+
+    const fileName = job.fileName || `${job.numeroReclamo || 'reclamo'}_${job.anio || '2026'}.pdf`;
+    return new File([blob], fileName, { type: 'application/pdf' });
+  }, []);
+
+  const loadSacJobIntoMainFlow = useCallback(async (job, { notify = true } = {}) => {
+    setSacLoadingPdf(true);
+    try {
+      const fetchedFile = await buildFileFromSacJob(job);
+      setFile(fetchedFile);
+      setStep(1);
+      setDerivationStatus(null);
+      setSacPanelOpen(false);
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      if (notify) {
+        showToast('PDF cargado automáticamente. Ya podés derivarlo.');
+      }
+    } finally {
+      setSacLoadingPdf(false);
+    }
+  }, [buildFileFromSacJob, showToast]);
+
   useEffect(() => { 
     loadContacts(); 
     loadGroups();
     loadShipments();
     loadCatalog();
   }, [loadContacts, loadGroups, loadShipments, loadCatalog]);
+
+  useEffect(() => {
+    if (!sacJob?.id) return;
+    if (sacJob.status === 'ready' || sacJob.status === 'failed') return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const nextJob = await fetchSacJob(sacJob.id);
+        if (cancelled || !nextJob) return;
+        setSacJob(nextJob);
+        if (nextJob.status === 'failed') {
+          showToast(nextJob.errorMessage || 'Falló la búsqueda automática en SAC.', 'error');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          showToast(error.message || 'No se pudo actualizar el estado del job SAC.', 'error');
+        }
+      }
+    };
+
+    poll();
+    const timer = setInterval(poll, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [sacJob?.id, sacJob?.status, fetchSacJob, showToast]);
+
+  useEffect(() => {
+    if (!sacJob?.id || sacJob.status !== 'ready') return;
+    if (sacAutoLoadedJobId === sacJob.id) return;
+
+    let cancelled = false;
+    setSacAutoLoadedJobId(sacJob.id);
+
+    (async () => {
+      try {
+        await loadSacJobIntoMainFlow(sacJob, { notify: false });
+        if (!cancelled) {
+          showToast('Reclamo encontrado y cargado automáticamente.');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSacAutoLoadedJobId(null);
+          showToast(error.message || 'No se pudo cargar automáticamente el PDF del reclamo.', 'error');
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sacJob?.id, sacJob?.status, sacAutoLoadedJobId, sacJob, loadSacJobIntoMainFlow, showToast]);
 
   useEffect(() => {
     let failedCount = 0;
@@ -2541,6 +2707,22 @@ export default function App() {
 
             <Tooltip>
               <TooltipTrigger asChild>
+                <button
+                  onClick={() => setSacPanelOpen(true)}
+                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 active:scale-95 transition-all duration-150 cursor-pointer relative"
+                  aria-label="Buscar reclamo en SAC"
+                >
+                  <FileText className="w-[18px] h-[18px]" />
+                  <span className="absolute bottom-1 right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm ring-2 ring-background">
+                    <Plus className="w-2 h-2 stroke-[3]" />
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>Buscar reclamo en SAC</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <button 
                   onClick={handleOpenConfig} 
                   className={`inline-flex items-center justify-center h-10 w-10 rounded-xl active:scale-95 transition-all duration-150 cursor-pointer ${
@@ -2842,9 +3024,9 @@ export default function App() {
         </Dialog>
 
         {sending && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-md animate-fade-in">
-            <Card className="w-full max-w-md mx-4 border-2 border-primary/20 shadow-2xl bg-card/90 backdrop-blur-xl animate-scale-in overflow-hidden">
-              <CardContent className="p-8 flex flex-col items-center text-center space-y-6">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-md animate-fade-in p-4">
+            <Card className={`w-full mx-auto border-2 border-primary/20 shadow-2xl bg-card/95 backdrop-blur-xl animate-scale-in overflow-hidden ${progress >= 100 ? 'max-w-xl' : 'max-w-md'}`}>
+              <CardContent className={progress >= 100 ? 'p-0' : 'p-8 flex flex-col items-center text-center space-y-6'}>
                 
                 {progress < 100 ? (
                   // CARGANDO (EN PROCESO DE ENVÍO)
@@ -2858,12 +3040,10 @@ export default function App() {
                         Enviando Reclamo
                       </h3>
                       
-                      {/* Main status */}
                       <p className="text-sm font-semibold text-primary animate-pulse min-h-[20px]">
                         {progressText}
                       </p>
 
-                      {/* Detailed info */}
                       {sendingDetails && (
                         <div className="mt-4 p-4 rounded-xl bg-muted/40 border border-border/50 text-left text-xs space-y-2.5">
                           {sendingDetails.solicitudNro && (
@@ -2897,84 +3077,96 @@ export default function App() {
                     </div>
                   </>
                 ) : (
-                  // COMPLETADO (ÉXITO O PARCIAL / ERROR)
-                  <>
-                    {/* Visual de estado final */}
-                    {(() => {
-                      const successCount = sendingDetails?.successCount || 0;
-                      const failCount = sendingDetails?.failCount || 0;
-                      const totalCount = sendingDetails?.total || 0;
+                  // COMPLETADO (ÉXITO O PARCIAL / ERROR) — layout horizontal
+                  (() => {
+                    const successCount = sendingDetails?.successCount || 0;
+                    const failCount = sendingDetails?.failCount || 0;
+                    const totalCount = sendingDetails?.total || 0;
 
-                      if (failCount === 0) {
-                        return (
-                          <>
-                            <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 animate-scale-in">
-                              <CheckCircle className="w-14 h-14 stroke-[2]" />
-                            </div>
-                            <div className="space-y-1.5 w-full">
-                              <h3 className="text-xl font-extrabold tracking-tight text-foreground">
-                                ¡Envío Completado!
-                              </h3>
-                              <p className="text-xs text-muted-foreground leading-normal">
-                                El reclamo fue derivado exitosamente por WhatsApp a todos los destinatarios seleccionados.
-                              </p>
-                            </div>
-                          </>
-                        );
-                      } else if (successCount > 0) {
-                        return (
-                          <>
-                            <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 animate-scale-in">
-                              <AlertCircle className="w-14 h-14 stroke-[2]" />
-                            </div>
-                            <div className="space-y-1.5 w-full">
-                              <h3 className="text-xl font-extrabold tracking-tight text-foreground">
-                                Envío Parcial
-                              </h3>
-                              <p className="text-xs text-muted-foreground leading-normal">
-                                Se envió correctamente a {successCount} de {totalCount} destinatario(s). {failCount} fallaron.
-                              </p>
-                            </div>
-                          </>
-                        );
-                      } else {
-                        return (
-                          <>
-                            <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-destructive/10 text-destructive animate-scale-in">
-                              <X className="w-14 h-14 stroke-[2]" />
-                            </div>
-                            <div className="space-y-1.5 w-full">
-                              <h3 className="text-xl font-extrabold tracking-tight text-foreground">
-                                Error de Envío
-                              </h3>
-                              <p className="text-xs text-muted-foreground leading-normal text-destructive/90">
-                                No se pudo entregar la derivación a ningún destinatario. Por favor verificá los números o la conexión.
-                              </p>
-                            </div>
-                          </>
-                        );
-                      }
-                    })()}
+                    const result = failCount === 0
+                      ? {
+                          Icon: CheckCircle,
+                          title: '¡Envío Completado!',
+                          description: 'El reclamo fue derivado exitosamente por WhatsApp a todos los destinatarios seleccionados.',
+                          strip: 'send-result-strip-success',
+                          iconWrap: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 ring-emerald-500/20',
+                        }
+                      : successCount > 0
+                        ? {
+                            Icon: AlertCircle,
+                            title: 'Envío Parcial',
+                            description: `Se envió correctamente a ${successCount} de ${totalCount} destinatario(s). ${failCount} fallaron.`,
+                            strip: 'send-result-strip-partial',
+                            iconWrap: 'bg-amber-500/12 text-amber-600 dark:text-amber-400 ring-amber-500/20',
+                          }
+                        : {
+                            Icon: X,
+                            title: 'Error de Envío',
+                            description: 'No se pudo entregar la derivación a ningún destinatario. Verificá los números o la conexión.',
+                            strip: 'send-result-strip-error',
+                            iconWrap: 'bg-destructive/12 text-destructive ring-destructive/20',
+                          };
 
-                    {/* Cartel de Recordatorio SAC */}
-                    {(sendingDetails?.successCount || 0) > 0 && (
-                      <div className="w-full p-5 rounded-xl bg-amber-500/10 dark:bg-amber-950/20 border-2 border-amber-500/20 dark:border-amber-900/30 text-center space-y-2 animate-fade-slide-up shadow-sm">
-                        <h4 className="text-sm font-extrabold text-amber-800 dark:text-amber-400 tracking-tight leading-snug uppercase">
-                          ⚠️ MARCA EN EL SAC QUE ESTE RECLAMO FUE DERIVADO
-                        </h4>
-                        <p className="text-[11px] text-muted-foreground leading-normal font-medium max-w-xs mx-auto">
-                          Recordá registrar que la derivación se realizó por PAI en el sistema SAC para evitar que se envíe dos veces.
-                        </p>
+                    const { Icon, title, description, strip, iconWrap } = result;
+
+                    return (
+                      <div className="flex flex-col">
+                        <div className={`send-result-banner ${strip} flex flex-col sm:flex-row sm:items-stretch`}>
+                          <div className="flex sm:flex-col items-center justify-center gap-3 px-6 py-5 sm:py-0 sm:w-[7.5rem] sm:shrink-0 border-b sm:border-b-0 sm:border-r border-border/40">
+                            <div className={`relative flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl ring-2 animate-scale-in ${iconWrap}`}>
+                              <Icon className="w-8 h-8 sm:w-9 sm:h-9 stroke-[2]" />
+                            </div>
+                            {successCount > 0 && totalCount > 0 && (
+                              <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider sm:hidden">
+                                {successCount}/{totalCount} enviados
+                              </Badge>
+                            )}
+                          </div>
+
+                          <div className="flex-1 px-6 py-5 sm:py-6 flex flex-col justify-center gap-3 min-w-0">
+                            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                              <div className="space-y-1 min-w-0 text-left">
+                                <h3 className="text-lg sm:text-xl font-extrabold tracking-tight text-foreground leading-tight">
+                                  {title}
+                                </h3>
+                                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-md">
+                                  {description}
+                                </p>
+                              </div>
+                              {successCount > 0 && totalCount > 0 && (
+                                <Badge variant="outline" className="hidden sm:inline-flex shrink-0 text-[10px] font-bold uppercase tracking-wider border-primary/25">
+                                  {successCount}/{totalCount} enviados
+                                </Badge>
+                              )}
+                            </div>
+
+                            {(sendingDetails?.successCount || 0) > 0 && (
+                              <div className="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] dark:bg-amber-950/25 px-3.5 py-3 text-left animate-fade-slide-up">
+                                <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                                <div className="min-w-0 space-y-0.5">
+                                  <p className="text-[11px] sm:text-xs font-extrabold uppercase tracking-wide text-amber-800 dark:text-amber-400 leading-snug">
+                                    Marcar en SAC que este reclamo fue derivado
+                                  </p>
+                                  <p className="text-[10px] sm:text-[11px] text-muted-foreground leading-relaxed">
+                                    Registrá la derivación por PAI en el sistema SAC para evitar envíos duplicados.
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="px-6 pb-6 pt-2 sm:px-6 sm:pb-6">
+                          <Button 
+                            onClick={handleCloseSending} 
+                            className="w-full h-11 font-bold text-sm rounded-xl cursor-pointer bg-primary hover:bg-primary/90 text-primary-foreground transition-all active:scale-95 duration-150 shadow-sm"
+                          >
+                            Entendido
+                          </Button>
+                        </div>
                       </div>
-                    )}
-
-                    <Button 
-                      onClick={handleCloseSending} 
-                      className="w-full h-11 font-bold text-sm rounded-xl mt-4 cursor-pointer bg-primary hover:bg-primary/90 text-primary-foreground transition-all active:scale-95 duration-150 shadow-sm"
-                    >
-                      Entendido
-                    </Button>
-                  </>
+                    );
+                  })()
                 )}
               </CardContent>
             </Card>
@@ -2982,6 +3174,128 @@ export default function App() {
         )}
 
         {toast && <Toast key={toast.id} message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+        {/* ── Overlay de carga SAC (full-screen blur) ── */}
+        {sacOverlayVisible && (
+          <div
+            className="fixed inset-0 z-[105] flex flex-col items-center justify-center bg-background/60 backdrop-blur-md animate-fade-in pointer-events-auto"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="flex flex-col items-center gap-5 text-center max-w-sm mx-4 px-6 py-8 rounded-2xl border border-primary/15 bg-card/90 shadow-xl animate-scale-in sac-loading-card">
+              <div className="relative flex h-16 w-16 items-center justify-center">
+                <div className="absolute inset-0 rounded-full border-2 border-primary/20 sac-loading-ring" />
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              </div>
+              <div className="space-y-2">
+                <p className="text-base font-bold tracking-tight text-foreground">
+                  {sacOverlayMessage}
+                </p>
+                {sacJob?.numeroReclamo && (
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    Reclamo {sacJob.numeroReclamo}/{sacJob.anio || sacAnio}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Panel lateral SAC ── */}
+        <Sheet
+          open={sacPanelOpen}
+          onOpenChange={(open) => {
+            if (!open && sacOverlayVisible) return;
+            setSacPanelOpen(open);
+          }}
+        >
+          <SheetContent side="right" className="sm:max-w-md w-full gap-0 p-0 border-l border-primary/10">
+            <SheetHeader className="px-6 pt-6 pb-4 border-b border-border/60 text-left">
+              <SheetTitle className="text-lg font-bold tracking-tight flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary" />
+                Buscar en SAC
+              </SheetTitle>
+              <SheetDescription>
+                Ingresá el número de reclamo para descargarlo automáticamente y derivarlo como un PDF subido manualmente.
+              </SheetDescription>
+            </SheetHeader>
+
+            <form
+              className="flex flex-col flex-1 px-6 py-6 gap-6"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleStartSacLookup();
+              }}
+            >
+              <div className="space-y-2">
+                <Label htmlFor="sac-panel-numero" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                  Número de reclamo
+                </Label>
+                <Input
+                  id="sac-panel-numero"
+                  placeholder="Ej: 123456"
+                  value={sacNumeroReclamo}
+                  onChange={(e) => setSacNumeroReclamo(e.target.value)}
+                  disabled={sacOverlayVisible}
+                  autoFocus
+                  inputMode="numeric"
+                  className="h-14 text-2xl font-bold tracking-tight text-center border-primary/25 focus-visible:ring-primary/30"
+                />
+              </div>
+
+              <div className="flex items-end gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="sac-panel-anio" className="text-xs font-semibold text-muted-foreground">
+                    Año
+                  </Label>
+                  <Input
+                    id="sac-panel-anio"
+                    placeholder="2026"
+                    value={sacAnio}
+                    onChange={(e) => setSacAnio(e.target.value)}
+                    disabled={sacOverlayVisible}
+                    inputMode="numeric"
+                    className="w-24 h-10 text-sm font-semibold text-center"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground pb-2.5 flex-1 leading-snug">
+                  Por defecto se usa el año en curso del sistema municipal.
+                </p>
+              </div>
+
+              {sacJob?.status === 'failed' && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 space-y-1 animate-fade-in">
+                  <p className="text-sm font-semibold text-red-600 dark:text-red-400 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    No se pudo completar la búsqueda
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {sacJob.errorMessage || 'Verificá el número e intentá de nuevo.'}
+                  </p>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                disabled={sacOverlayVisible}
+                className="w-full h-12 gap-2 font-bold text-sm rounded-xl mt-auto"
+              >
+                {sacOverlayVisible ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Buscando…
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4" />
+                    Buscar en SAC
+                  </>
+                )}
+              </Button>
+            </form>
+          </SheetContent>
+        </Sheet>
 
         <SubtypesCatalogDialog
           open={catalogOpen}

@@ -6,6 +6,7 @@ const qrcode = require('qrcode-terminal');
 // Polyfill WebSocket for Supabase in Node.js environments
 global.WebSocket = require('ws');
 const { createClient } = require('@supabase/supabase-js');
+const { runSacSingleClaimFetch } = require('./services/sacAutomation');
 const { 
     default: makeWASocket, 
     DisconnectReason, 
@@ -23,6 +24,10 @@ const SESSION_ID = process.env.SESSION_ID || 'pai';
 const MOCK_CONNECTION = process.env.MOCK_CONNECTION === 'true';
 const STANDDOWN_ON_CONFLICT = process.env.STANDDOWN_ON_CONFLICT === 'true';
 const RECONNECT_WATCHDOG_MS = Number(process.env.RECONNECT_WATCHDOG_MS || 30000);
+const SAC_USER = process.env.SAC_USER || '';
+const SAC_PASSWORD = process.env.SAC_PASSWORD || '';
+const SAC_AUTOMATION_TOKEN = process.env.SAC_AUTOMATION_TOKEN || '';
+const SAC_MAX_CONCURRENT_JOBS = Math.max(1, Number(process.env.SAC_MAX_CONCURRENT_JOBS || 1));
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -40,6 +45,9 @@ let sock = null;
 let isConnected = false;
 let isConnecting = false;
 let qrCode = null;
+const sacJobsCache = new Map();
+const sacJobQueue = [];
+let activeSacJobs = 0;
 
 /**
  * Custom Supabase Auth State Provider for Baileys
@@ -364,6 +372,268 @@ function shipmentContactPhone({ isGroup, cleanNumber, groupJid, phoneNumber }) {
     if (phoneNumber) return phoneNumber.replace(/[^0-9]/g, '') || 'desconocido';
     return 'desconocido';
 }
+
+function sanitizeClaimValue(value) {
+    return String(value || '').trim().replace(/[^0-9-]/g, '');
+}
+
+function sanitizeStorageSegment(value) {
+    return String(value || '')
+        .replace(/[^a-zA-Z0-9._-]/g, '_')
+        .slice(0, 100);
+}
+
+function isSacAuthAllowed(req) {
+    if (!SAC_AUTOMATION_TOKEN) return true;
+    const token = req.headers['x-sac-automation-token'];
+    return typeof token === 'string' && token === SAC_AUTOMATION_TOKEN;
+}
+
+function slimSacJob(job) {
+    if (!job) return null;
+    return {
+        id: job.id,
+        numeroReclamo: job.numero_reclamo,
+        anio: job.anio,
+        status: job.status,
+        errorMessage: job.error_message || null,
+        storagePath: job.storage_path || null,
+        fileName: job.file_name || null,
+        publicUrl: job.public_url || null,
+        createdAt: job.created_at || null,
+        startedAt: job.started_at || null,
+        finishedAt: job.finished_at || null
+    };
+}
+
+async function insertSacJob(job) {
+    sacJobsCache.set(job.id, job);
+    const { error } = await supabase.from('sac_jobs').insert(job);
+    if (error) {
+        console.warn('[SAC] No se pudo insertar sac_jobs en Supabase. Se mantiene en caché temporal.', error.message);
+    }
+}
+
+async function updateSacJob(jobId, patch) {
+    const current = sacJobsCache.get(jobId);
+    if (current) {
+        sacJobsCache.set(jobId, { ...current, ...patch });
+    }
+    const { error } = await supabase.from('sac_jobs').update(patch).eq('id', jobId);
+    if (error) {
+        console.warn('[SAC] No se pudo actualizar sac_jobs en Supabase. Se mantiene en caché temporal.', error.message);
+    }
+}
+
+async function getSacJobById(jobId) {
+    const cached = sacJobsCache.get(jobId);
+    if (cached) return cached;
+    const { data } = await supabase.from('sac_jobs').select('*').eq('id', jobId).maybeSingle();
+    if (data) {
+        sacJobsCache.set(jobId, data);
+        return data;
+    }
+    return null;
+}
+
+async function findRunningSacJob(numeroReclamo, anio) {
+    for (const job of sacJobsCache.values()) {
+        if (
+            job.numero_reclamo === numeroReclamo &&
+            job.anio === anio &&
+            (job.status === 'queued' || job.status === 'running')
+        ) {
+            return job;
+        }
+    }
+    const { data } = await supabase
+        .from('sac_jobs')
+        .select('*')
+        .eq('numero_reclamo', numeroReclamo)
+        .eq('anio', anio)
+        .in('status', ['queued', 'running'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    if (data) {
+        sacJobsCache.set(data.id, data);
+        return data;
+    }
+    return null;
+}
+
+function enqueueSacJob(jobId) {
+    sacJobQueue.push(jobId);
+    void processSacQueue();
+}
+
+async function processSacQueue() {
+    if (activeSacJobs >= SAC_MAX_CONCURRENT_JOBS) return;
+    const nextJobId = sacJobQueue.shift();
+    if (!nextJobId) return;
+    activeSacJobs += 1;
+
+    try {
+        await processSacJob(nextJobId);
+    } finally {
+        activeSacJobs = Math.max(0, activeSacJobs - 1);
+        if (sacJobQueue.length > 0) {
+            void processSacQueue();
+        }
+    }
+}
+
+async function processSacJob(jobId) {
+    const current = await getSacJobById(jobId);
+    if (!current) return;
+
+    const startedAt = new Date().toISOString();
+    await updateSacJob(jobId, { status: 'running', started_at: startedAt, error_message: null });
+
+    try {
+        const { pdfBuffer, suggestedFileName } = await runSacSingleClaimFetch({
+            numeroReclamo: current.numero_reclamo,
+            anio: current.anio,
+            usuario: SAC_USER,
+            contrasena: SAC_PASSWORD
+        });
+
+        const safeNumber = sanitizeStorageSegment(current.numero_reclamo);
+        const safeName = sanitizeStorageSegment(suggestedFileName || `${safeNumber}_${current.anio}.pdf`);
+        const storagePath = `sac/${current.anio}/${Date.now()}_${safeName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('pdfs')
+            .upload(storagePath, pdfBuffer, {
+                contentType: 'application/pdf',
+                upsert: false
+            });
+
+        if (uploadError) {
+            throw new Error(`No se pudo subir el PDF a Storage: ${uploadError.message}`);
+        }
+
+        const { data: publicData } = supabase.storage.from('pdfs').getPublicUrl(storagePath);
+        await updateSacJob(jobId, {
+            status: 'ready',
+            finished_at: new Date().toISOString(),
+            storage_path: storagePath,
+            file_name: suggestedFileName || `${safeNumber}_${current.anio}.pdf`,
+            public_url: publicData?.publicUrl || null
+        });
+    } catch (error) {
+        await updateSacJob(jobId, {
+            status: 'failed',
+            finished_at: new Date().toISOString(),
+            error_message: error?.message || 'Error desconocido al descargar reclamo SAC'
+        });
+    }
+}
+
+app.post('/sac/fetch-single-claim', async (req, res) => {
+    if (!isSacAuthAllowed(req)) {
+        return res.status(401).json({
+            success: false,
+            message: 'No autorizado para ejecutar automatización SAC.'
+        });
+    }
+
+    const numeroReclamo = sanitizeClaimValue(req.body?.numeroReclamo);
+    const rawAnio = req.body?.anio;
+    const anio = Number(rawAnio || 2026);
+
+    if (!numeroReclamo) {
+        return res.status(400).json({
+            success: false,
+            message: 'El campo "numeroReclamo" es obligatorio.'
+        });
+    }
+
+    if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+        return res.status(400).json({
+            success: false,
+            message: 'El campo "anio" debe ser un número válido.'
+        });
+    }
+
+    if (!SAC_USER || !SAC_PASSWORD) {
+        return res.status(500).json({
+            success: false,
+            message: 'Faltan SAC_USER y/o SAC_PASSWORD en variables de entorno del backend.'
+        });
+    }
+
+    try {
+        const existingJob = await findRunningSacJob(numeroReclamo, anio);
+        if (existingJob) {
+            return res.status(200).json({
+                success: true,
+                reused: true,
+                job: slimSacJob(existingJob)
+            });
+        }
+
+        const nowIso = new Date().toISOString();
+        const job = {
+            id: `sac_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            numero_reclamo: numeroReclamo,
+            anio,
+            status: 'queued',
+            error_message: null,
+            storage_path: null,
+            file_name: null,
+            public_url: null,
+            created_at: nowIso,
+            started_at: null,
+            finished_at: null
+        };
+
+        await insertSacJob(job);
+        enqueueSacJob(job.id);
+
+        return res.status(202).json({
+            success: true,
+            message: 'Búsqueda de reclamo encolada.',
+            job: slimSacJob(job)
+        });
+    } catch (error) {
+        console.error('[SAC] Error al crear job:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'No se pudo iniciar la búsqueda del reclamo SAC.',
+            error: error.message
+        });
+    }
+});
+
+app.get('/sac/jobs/:jobId', async (req, res) => {
+    if (!isSacAuthAllowed(req)) {
+        return res.status(401).json({
+            success: false,
+            message: 'No autorizado para consultar jobs SAC.'
+        });
+    }
+
+    try {
+        const job = await getSacJobById(req.params.jobId);
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: 'Job SAC no encontrado.'
+            });
+        }
+        return res.status(200).json({
+            success: true,
+            job: slimSacJob(job)
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: 'No se pudo consultar el job SAC.',
+            error: error.message
+        });
+    }
+});
 
 app.post('/send-pdf', async (req, res) => {
     const { fileName, phoneNumber, groupJid, caption, contactName, solicitudNro, subtipo, displayName, isGroup, usuarioCarga } = req.body;

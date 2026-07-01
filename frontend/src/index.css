@@ -273,6 +273,50 @@
   animation: scaleIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* ===== SAC loading overlay ===== */
+.sac-loading-card {
+  backdrop-filter: blur(8px);
+}
+
+@keyframes sacRingPulse {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+.sac-loading-ring {
+  animation: sacRingPulse 2s ease-in-out infinite;
+}
+
+/* ===== Send result banner (horizontal completion modal) ===== */
+.send-result-banner {
+  position: relative;
+  overflow: hidden;
+}
+
+.send-result-strip-success::before,
+.send-result-strip-partial::before,
+.send-result-strip-error::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  pointer-events: none;
+}
+
+.send-result-strip-success::before {
+  background: linear-gradient(90deg, transparent, rgb(16 185 129 / 0.7), transparent);
+}
+
+.send-result-strip-partial::before {
+  background: linear-gradient(90deg, transparent, rgb(245 158 11 / 0.7), transparent);
+}
+
+.send-result-strip-error::before {
+  background: linear-gradient(90deg, transparent, rgb(239 68 68 / 0.65), transparent);
+}
+
 @keyframes arrowUpBounce {
   0%, 100% {
     transform: translate(-50%, 0);
