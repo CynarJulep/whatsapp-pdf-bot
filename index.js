@@ -28,6 +28,7 @@ const SAC_USER = process.env.SAC_USER || '';
 const SAC_PASSWORD = process.env.SAC_PASSWORD || '';
 const SAC_AUTOMATION_TOKEN = process.env.SAC_AUTOMATION_TOKEN || '';
 const SAC_MAX_CONCURRENT_JOBS = Math.max(1, Number(process.env.SAC_MAX_CONCURRENT_JOBS || 1));
+const SAC_JOB_STALE_MS = Math.max(60000, Number(process.env.SAC_JOB_STALE_MS || 8 * 60 * 1000));
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -302,6 +303,7 @@ app.get('/status', (req, res) => {
         connected: isConnected,
         connecting: isConnecting,
         session_id: SESSION_ID,
+        mock_connection: MOCK_CONNECTION,
         phone_user: isConnected
             ? (MOCK_CONNECTION ? '549342555555:12@s.whatsapp.net' : (sock?.user?.id || null))
             : null,
@@ -436,6 +438,38 @@ async function getSacJobById(jobId) {
     return null;
 }
 
+function getSacJobReferenceTime(job) {
+    const started = Date.parse(job?.started_at || '');
+    if (!Number.isNaN(started) && started > 0) return started;
+    const created = Date.parse(job?.created_at || '');
+    if (!Number.isNaN(created) && created > 0) return created;
+    return Date.now();
+}
+
+async function markSacJobAsStale(job) {
+    if (!job) return;
+    const message = `Job SAC vencido por timeout (${Math.round(SAC_JOB_STALE_MS / 60000)} min). Se reinicia automáticamente.`;
+    const patch = {
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_message: message
+    };
+    await updateSacJob(job.id, patch);
+    sacJobsCache.set(job.id, { ...job, ...patch });
+    console.warn(`[SAC] Job ${job.id} marcado como stale. ${message}`);
+}
+
+async function normalizeRunningSacJob(job) {
+    if (!job) return null;
+    if (job.status !== 'queued' && job.status !== 'running') return null;
+    const ageMs = Date.now() - getSacJobReferenceTime(job);
+    if (ageMs <= SAC_JOB_STALE_MS) {
+        return job;
+    }
+    await markSacJobAsStale(job);
+    return null;
+}
+
 async function findRunningSacJob(numeroReclamo, anio) {
     for (const job of sacJobsCache.values()) {
         if (
@@ -443,7 +477,8 @@ async function findRunningSacJob(numeroReclamo, anio) {
             job.anio === anio &&
             (job.status === 'queued' || job.status === 'running')
         ) {
-            return job;
+            const normalized = await normalizeRunningSacJob(job);
+            if (normalized) return normalized;
         }
     }
     const { data } = await supabase
@@ -457,7 +492,8 @@ async function findRunningSacJob(numeroReclamo, anio) {
         .maybeSingle();
     if (data) {
         sacJobsCache.set(data.id, data);
-        return data;
+        const normalized = await normalizeRunningSacJob(data);
+        if (normalized) return normalized;
     }
     return null;
 }
@@ -729,8 +765,11 @@ app.post('/send-pdf', async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: 'Archivo enviado exitosamente.',
-            messageId: response.key.id
+            message: MOCK_CONNECTION
+                ? 'Simulación: el archivo NO se envió por WhatsApp (MOCK_CONNECTION=true).'
+                : 'Archivo enviado exitosamente.',
+            messageId: response.key.id,
+            mock: MOCK_CONNECTION
         });
 
     } catch (err) {
