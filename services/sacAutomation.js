@@ -172,6 +172,13 @@ async function isLoginPage(page) {
 async function performLogin(page, usuario, contrasena) {
   await page.goto(SAC_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
 
+  // En ciertos estados SAC redirige al inicio aun llamando a login.do.
+  // Si ya hay sesión activa, no forzamos un login interactivo.
+  if (!(await isLoginPage(page))) {
+    console.log('[SAC] La pantalla de login no está visible, se asume sesión activa.');
+    return;
+  }
+
   const usuarioInput = await waitForFirst(page, [
     'input[name="usuario"]',
     'input#usuario',
@@ -450,6 +457,7 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
       await performLogin(page, usuario, contrasena);
       await saveSessionState(context);
       await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
+      await page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
       form = await resolveSearchForm();
     }
 
