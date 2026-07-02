@@ -343,52 +343,39 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
     throw new Error('No se encontró Playwright instalado en el servidor');
   }
 
-  const browser = await playwright.chromium.launch({
-    headless: SAC_HEADLESS,
-    args: ['--no-sandbox', '--disable-dev-shm-usage']
-  });
+  const MAX_ATTEMPTS = 2;
+  let lastError = null;
 
-  try {
-    const contextOptions = {
-      acceptDownloads: true,
-      viewport: { width: 1440, height: 900 }
-    };
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const browser = await playwright.chromium.launch({
+      headless: SAC_HEADLESS,
+      args: ['--no-sandbox', '--disable-dev-shm-usage']
+    });
 
-    if (await fileExists(SAC_SESSION_STATE_PATH)) {
-      contextOptions.storageState = SAC_SESSION_STATE_PATH;
-      console.log('[SAC] Reutilizando sesión guardada localmente.');
-    }
+    try {
+      const contextOptions = {
+        acceptDownloads: true,
+        viewport: { width: 1440, height: 900 }
+      };
 
-    const context = await browser.newContext(contextOptions);
-    const page = await context.newPage();
-    page.setDefaultTimeout(SAC_TIMEOUT_MS);
+      if (attempt === 1 && await fileExists(SAC_SESSION_STATE_PATH)) {
+        contextOptions.storageState = SAC_SESSION_STATE_PATH;
+        console.log('[SAC] Reutilizando sesión guardada localmente.');
+      }
 
-    await ensureLoggedIn(page, context, usuario, contrasena);
+      const context = await browser.newContext(contextOptions);
+      const page = await context.newPage();
+      page.setDefaultTimeout(SAC_TIMEOUT_MS);
 
-    const resolveSearchForm = async () => {
-      const scopes = getSearchScopes(page);
-      let activeScope = page.mainFrame();
+      await ensureLoggedIn(page, context, usuario, contrasena);
 
-      let numeroInput;
-      try {
-        const foundNumero = await waitForFirstInScopes(scopes, [
-          'input[name="nroSolicitud"]',
-          'input[name="numeroSolicitud"]',
-          'input[name="numero"]',
-          'input[name*="solicitud"]',
-          'input[id*="solicitud"]',
-          'input[name*="reclamo"]',
-          'input[id*="reclamo"]'
-        ], 25000);
-        numeroInput = foundNumero.locator;
-        activeScope = foundNumero.scope;
-      } catch (_) {
-        const guessedNumero = await findControlByHints(scopes, {
-          selector: 'input, textarea',
-          hints: ['solicitud', 'reclamo', 'numero', 'nro']
-        });
-        if (!guessedNumero) {
-          throw new Error(buildDetailedSelectorError([
+      const resolveSearchForm = async () => {
+        const scopes = getSearchScopes(page);
+        let activeScope = page.mainFrame();
+
+        let numeroInput;
+        try {
+          const foundNumero = await waitForFirstInScopes(scopes, [
             'input[name="nroSolicitud"]',
             'input[name="numeroSolicitud"]',
             'input[name="numero"]',
@@ -396,110 +383,140 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
             'input[id*="solicitud"]',
             'input[name*="reclamo"]',
             'input[id*="reclamo"]'
-          ], scopes));
+          ], 25000);
+          numeroInput = foundNumero.locator;
+          activeScope = foundNumero.scope;
+        } catch (_) {
+          const guessedNumero = await findControlByHints(scopes, {
+            selector: 'input, textarea',
+            hints: ['solicitud', 'reclamo', 'numero', 'nro']
+          });
+          if (!guessedNumero) {
+            throw new Error(buildDetailedSelectorError([
+              'input[name="nroSolicitud"]',
+              'input[name="numeroSolicitud"]',
+              'input[name="numero"]',
+              'input[name*="solicitud"]',
+              'input[id*="solicitud"]',
+              'input[name*="reclamo"]',
+              'input[id*="reclamo"]'
+            ], scopes));
+          }
+          numeroInput = guessedNumero.locator;
+          activeScope = guessedNumero.scope;
+          console.log(`[SAC] Campo número detectado por heurística en scope: ${describeScope(activeScope)}`);
         }
-        numeroInput = guessedNumero.locator;
-        activeScope = guessedNumero.scope;
-        console.log(`[SAC] Campo número detectado por heurística en scope: ${describeScope(activeScope)}`);
-      }
 
-      let anioInput;
+        let anioInput;
+        try {
+          const foundAnio = await waitForFirst(activeScope, [
+            'select[name="anioSolicitud"]',
+            'input[name="anioSolicitud"]',
+            'input[name="anio"]',
+            'select[name="anio"]',
+            'input[id*="anio"]',
+            'select[id*="anio"]'
+          ]);
+          anioInput = foundAnio;
+        } catch (_) {
+          const guessedAnio = await findControlByHints([activeScope], {
+            selector: 'select, input',
+            hints: ['anio', 'año', 'ejercicio']
+          });
+          if (guessedAnio) {
+            anioInput = guessedAnio.locator;
+            console.log(`[SAC] Campo año detectado por heurística en scope: ${describeScope(activeScope)}`);
+          }
+        }
+
+        let buscarButton;
+        try {
+          buscarButton = await waitForFirst(activeScope, [
+            'input[type="button"][value*="Buscar"]',
+            'input[type="submit"][value*="Buscar"]',
+            'button:has-text("Buscar")',
+            'input[name="buscar"]'
+          ]);
+        } catch (_) {
+          const guessedButton = await findControlByHints([activeScope], {
+            selector: 'button, input[type="button"], input[type="submit"]',
+            hints: ['buscar', 'consultar', 'aceptar']
+          });
+          if (!guessedButton) {
+            throw new Error(`No se pudo encontrar el botón de búsqueda en el formulario SAC (${describeScope(activeScope)})`);
+          }
+          buscarButton = guessedButton.locator;
+          console.log('[SAC] Botón de búsqueda detectado por heurística.');
+        }
+
+        return { numeroInput, anioInput, buscarButton, activeScope };
+      };
+
+      let form;
       try {
-        const foundAnio = await waitForFirst(activeScope, [
-          'select[name="anioSolicitud"]',
-          'input[name="anioSolicitud"]',
-          'input[name="anio"]',
-          'select[name="anio"]',
-          'input[id*="anio"]',
-          'select[id*="anio"]'
-        ]);
-        anioInput = foundAnio;
-      } catch (_) {
-        const guessedAnio = await findControlByHints([activeScope], {
-          selector: 'select, input',
-          hints: ['anio', 'año', 'ejercicio']
-        });
-        if (guessedAnio) {
-          anioInput = guessedAnio.locator;
-          console.log(`[SAC] Campo año detectado por heurística en scope: ${describeScope(activeScope)}`);
-        }
+        form = await resolveSearchForm();
+      } catch (firstError) {
+        console.warn(`[SAC] No se pudo detectar el formulario de búsqueda al primer intento: ${firstError.message}`);
+        console.warn('[SAC] Reintentando con login forzado y refresco completo de sesión...');
+        await performLogin(page, usuario, contrasena);
+        await saveSessionState(context);
+        await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
+        await page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
+        form = await resolveSearchForm();
       }
 
-      let buscarButton;
-      try {
-        buscarButton = await waitForFirst(activeScope, [
-          'input[type="button"][value*="Buscar"]',
-          'input[type="submit"][value*="Buscar"]',
-          'button:has-text("Buscar")',
-          'input[name="buscar"]'
-        ]);
-      } catch (_) {
-        const guessedButton = await findControlByHints([activeScope], {
-          selector: 'button, input[type="button"], input[type="submit"]',
-          hints: ['buscar', 'consultar', 'aceptar']
-        });
-        if (!guessedButton) {
-          throw new Error(`No se pudo encontrar el botón de búsqueda en el formulario SAC (${describeScope(activeScope)})`);
+      const { numeroInput, anioInput, buscarButton, activeScope } = form;
+
+      await maybeFill(numeroInput, numeroReclamo);
+
+      if (anioInput) {
+        const anioTag = await anioInput.evaluate((el) => el.tagName.toLowerCase());
+        if (anioTag === 'select') {
+          await anioInput.selectOption(String(anio));
+        } else {
+          await maybeFill(anioInput, anio);
         }
-        buscarButton = guessedButton.locator;
-        console.log('[SAC] Botón de búsqueda detectado por heurística.');
-      }
-
-      return { numeroInput, anioInput, buscarButton, activeScope };
-    };
-
-    let form;
-    try {
-      form = await resolveSearchForm();
-    } catch (firstError) {
-      console.warn(`[SAC] No se pudo detectar el formulario de búsqueda al primer intento: ${firstError.message}`);
-      console.warn('[SAC] Reintentando con login forzado y refresco completo de sesión...');
-      await performLogin(page, usuario, contrasena);
-      await saveSessionState(context);
-      await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
-      await page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
-      form = await resolveSearchForm();
-    }
-
-    const { numeroInput, anioInput, buscarButton, activeScope } = form;
-
-    await maybeFill(numeroInput, numeroReclamo);
-
-    if (anioInput) {
-      const anioTag = await anioInput.evaluate((el) => el.tagName.toLowerCase());
-      if (anioTag === 'select') {
-        await anioInput.selectOption(String(anio));
       } else {
-        await maybeFill(anioInput, anio);
+        console.warn('[SAC] No se detectó campo de año. Se continúa con valor por defecto del formulario.');
       }
-    } else {
-      console.warn('[SAC] No se detectó campo de año. Se continúa con valor por defecto del formulario.');
+
+      await Promise.all([
+        page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
+        buscarButton.click()
+      ]);
+
+      await openClaimDetail(activeScope, numeroReclamo, anio);
+
+      const { pdfBuffer, suggestedFileName } = await triggerPdfDownload({
+        page,
+        scope: activeScope,
+        context,
+        numeroReclamo,
+        timeoutMs: SAC_TIMEOUT_MS
+      });
+
+      await saveSessionState(context);
+
+      return {
+        pdfBuffer,
+        suggestedFileName: sanitizeFileName(suggestedFileName) || `${numeroReclamo}_${anio}.pdf`
+      };
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message || '');
+      const isTransientBrowserClose = /Target page, context or browser has been closed|page has been closed|browser has been closed/i.test(message);
+
+      if (isTransientBrowserClose && attempt < MAX_ATTEMPTS) {
+        console.warn(`[SAC] Intento ${attempt} falló por cierre inesperado del navegador. Reintentando desde cero...`);
+      } else {
+        throw error;
+      }
+    } finally {
+      await browser.close().catch(() => null);
     }
-
-    await Promise.all([
-      page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
-      buscarButton.click()
-    ]);
-
-    await openClaimDetail(activeScope, numeroReclamo, anio);
-
-    const { pdfBuffer, suggestedFileName } = await triggerPdfDownload({
-      page,
-      scope: activeScope,
-      context,
-      numeroReclamo,
-      timeoutMs: SAC_TIMEOUT_MS
-    });
-
-    await saveSessionState(context);
-
-    return {
-      pdfBuffer,
-      suggestedFileName: sanitizeFileName(suggestedFileName) || `${numeroReclamo}_${anio}.pdf`
-    };
-  } finally {
-    await browser.close();
   }
+
+  throw lastError || new Error('No se pudo completar la búsqueda SAC');
 }
 
 module.exports = {
