@@ -46,9 +46,28 @@ let sock = null;
 let isConnected = false;
 let isConnecting = false;
 let qrCode = null;
+let reconnectTimer = null;
+let socketSequence = 0;
 const sacJobsCache = new Map();
 const sacJobQueue = [];
 let activeSacJobs = 0;
+
+function clearReconnectTimer() {
+    if (!reconnectTimer) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+}
+
+function scheduleReconnect(delayMs, reason) {
+    if (reconnectTimer) {
+        console.log(`[WhatsApp] Reconnect already scheduled. Keeping existing timer (${reason}).`);
+        return;
+    }
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectToWhatsApp();
+    }, delayMs);
+}
 
 /**
  * Custom Supabase Auth State Provider for Baileys
@@ -179,20 +198,23 @@ async function connectToWhatsApp() {
         isConnected = true;
         isConnecting = false;
         qrCode = null;
+        clearReconnectTimer();
         return;
     }
+    clearReconnectTimer();
     isConnecting = true;
     try {
         // Cleanup existing socket if any to prevent duplicate instances
         if (sock) {
             console.log('[WhatsApp] Cleaning up existing socket before reconnecting...');
+            const previousSock = sock;
+            sock = null;
             try {
-                sock.ev.removeAllListeners();
-                sock.end();
+                previousSock.ev.removeAllListeners();
+                previousSock.end();
             } catch (err) {
                 console.error('[WhatsApp] Error ending previous socket:', err);
             }
-            sock = null;
         }
 
         console.log(`[WhatsApp] Connecting session: ${SESSION_ID}...`);
@@ -207,9 +229,15 @@ async function connectToWhatsApp() {
 
         // Sync credentials whenever update is fired
         sock.ev.on('creds.update', saveCreds);
+        const socketRef = sock;
+        const socketId = ++socketSequence;
 
         // Connection update listener
         sock.ev.on('connection.update', async (update) => {
+            if (sock !== socketRef) {
+                // Ignore stale socket events that can otherwise trigger reconnect loops.
+                return;
+            }
             const { connection, lastDisconnect, qr } = update;
 
             if (qr) {
@@ -229,11 +257,11 @@ async function connectToWhatsApp() {
                 const isConflict = statusCode === 440 || lastDisconnect?.error?.message?.includes('conflict');
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !isConflict;
                 
-                console.warn(`[WhatsApp] Connection closed. Status Code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+                console.warn(`[WhatsApp] Connection #${socketId} closed. Status Code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
 
                 if (shouldReconnect) {
                     isConnecting = true;
-                    setTimeout(connectToWhatsApp, 5000);
+                    scheduleReconnect(5000, `close-${socketId}`);
                 } else if (isConflict) {
                     qrCode = null;
                     if (STANDDOWN_ON_CONFLICT) {
@@ -242,23 +270,27 @@ async function connectToWhatsApp() {
                     } else {
                         console.warn('[WhatsApp] Session conflict. Clearing socket and reconnecting for a fresh QR...');
                         isConnecting = true;
-                        if (sock) {
-                            try { sock.end(); } catch (_) { /* ignore */ }
+                        if (sock === socketRef) {
+                            try { socketRef.end(); } catch (_) { /* ignore */ }
                             sock = null;
                         }
-                        setTimeout(connectToWhatsApp, 5000);
+                        scheduleReconnect(5000, `conflict-${socketId}`);
                     }
                 } else {
                     isConnecting = true;
                     console.error('[WhatsApp] Logged out. Deleting credentials in Supabase to start fresh.');
                     await supabase.from('baileys_creds').delete().eq('session_id', SESSION_ID);
                     await supabase.from('baileys_keys').delete().eq('session_id', SESSION_ID);
-                    setTimeout(connectToWhatsApp, 5000);
+                    if (sock === socketRef) {
+                        sock = null;
+                    }
+                    scheduleReconnect(5000, `loggedout-${socketId}`);
                 }
             } else if (connection === 'open') {
                 isConnected = true;
                 isConnecting = false;
                 qrCode = null;
+                clearReconnectTimer();
                 console.log(`[WhatsApp] Connection established successfully! Logged in as: ${sock.user.name || sock.user.id}`);
             }
         });
@@ -266,7 +298,7 @@ async function connectToWhatsApp() {
     } catch (err) {
         console.error('[WhatsApp] Critical error during initialization:', err);
         isConnecting = false;
-        setTimeout(connectToWhatsApp, 10000); // retry after 10s
+        scheduleReconnect(10000, 'critical-init'); // retry after 10s
     }
 }
 
