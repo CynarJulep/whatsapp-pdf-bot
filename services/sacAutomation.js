@@ -77,6 +77,25 @@ async function waitForFirstInScopes(scopes, selectors, timeout = 15000) {
   throw new Error(buildDetailedSelectorError(selectors, scopes));
 }
 
+async function tryOpenSearchFromMenu(page, scopes) {
+  for (const scope of scopes) {
+    const menuLink = scope.locator('a', { hasText: /Buscar solicitud|Buscar reclamo|Solicitud/i }).first();
+    const count = await menuLink.count();
+    if (!count) continue;
+    try {
+      await Promise.all([
+        page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => null),
+        menuLink.click({ timeout: 4000 })
+      ]);
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => null);
+      return true;
+    } catch (_) {
+      // try next scope/link
+    }
+  }
+  return false;
+}
+
 function buildControlHaystack(meta) {
   return [
     meta.name,
@@ -392,6 +411,21 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
             hints: ['solicitud', 'reclamo', 'numero', 'nro']
           });
           if (!guessedNumero) {
+            const openedFromMenu = await tryOpenSearchFromMenu(page, scopes);
+            if (openedFromMenu) {
+              const refreshedScopes = getSearchScopes(page);
+              const retryNumero = await findControlByHints(refreshedScopes, {
+                selector: 'input, textarea',
+                hints: ['solicitud', 'reclamo', 'numero', 'nro']
+              });
+              if (retryNumero) {
+                numeroInput = retryNumero.locator;
+                activeScope = retryNumero.scope;
+                console.log(`[SAC] Campo número detectado tras navegar desde menú en scope: ${describeScope(activeScope)}`);
+              }
+            }
+          }
+          if (!numeroInput) {
             throw new Error(buildDetailedSelectorError([
               'input[name="nroSolicitud"]',
               'input[name="numeroSolicitud"]',
@@ -402,9 +436,11 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
               'input[id*="reclamo"]'
             ], scopes));
           }
-          numeroInput = guessedNumero.locator;
-          activeScope = guessedNumero.scope;
-          console.log(`[SAC] Campo número detectado por heurística en scope: ${describeScope(activeScope)}`);
+          if (guessedNumero) {
+            numeroInput = guessedNumero.locator;
+            activeScope = guessedNumero.scope;
+            console.log(`[SAC] Campo número detectado por heurística en scope: ${describeScope(activeScope)}`);
+          }
         }
 
         let anioInput;
