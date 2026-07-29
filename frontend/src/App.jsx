@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import * as pdfjsLib from 'pdfjs-dist';
 import {
@@ -154,22 +154,52 @@ const normalizePhone = (raw) => {
   return p;
 };
 
-/** Reset scroll/body locks after leaving the tall PDF preview (iframe-safe). */
-function resetAppViewport() {
-  const clear = () => {
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
+/**
+ * Reset scroll after leaving the tall PDF preview.
+ * En Google Sites el scroll real suele ser del PADRE (no del iframe).
+ * window.scrollTo solo mueve el iframe; scrollIntoView del header
+ * también hace scroll del documento padre para que la cabecera vuelva a verse.
+ */
+function bringChromeIntoView(anchorEl) {
+  const clearBodyLocks = () => {
     document.documentElement.style.removeProperty('overflow');
     document.documentElement.style.removeProperty('overflow-x');
     document.body.style.removeProperty('overflow');
     document.body.style.removeProperty('padding-right');
     document.body.style.removeProperty('pointer-events');
   };
-  clear();
-  requestAnimationFrame(clear);
-  setTimeout(clear, 50);
-  setTimeout(clear, 200);
+
+  const run = () => {
+    clearBodyLocks();
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+
+    const target = anchorEl || document.getElementById('pai-app-top');
+    if (target) {
+      // 'instant' / 'auto' evita pelear con smooth scroll del padre
+      try {
+        target.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
+      } catch {
+        target.scrollIntoView(true);
+      }
+    }
+
+    // Fallback extra para algunos embeds
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'pai-scroll-top' }, '*');
+      }
+    } catch {
+      /* cross-origin: ignore */
+    }
+  };
+
+  run();
+  requestAnimationFrame(run);
+  setTimeout(run, 50);
+  setTimeout(run, 150);
+  setTimeout(run, 400);
 }
 
 const USUARIO_CARGA_SKIP = new Set([
@@ -508,14 +538,9 @@ function PreviewAndPick({ file, contacts, groups = [], shipments = [], subtypesC
   const derivationBannerRef = useRef(null);
 
   const scrollToDerivationBanner = useCallback(() => {
-    const scroll = () => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      derivationBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
-    requestAnimationFrame(() => {
-      scroll();
-      setTimeout(scroll, 120);
-    });
+    // NO usar scrollIntoView acá: en Google Sites mueve el scroll del PADRE
+    // y deja el header del iframe fuera de la ventana visible.
+    window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
 
   const activeContacts = contacts.filter(c => c.is_active);
@@ -2118,6 +2143,7 @@ export default function App() {
   const [progressText, setProgressText] = useState('');
   const [sendingDetails, setSendingDetails] = useState(null);
   const autoCloseTimeoutRef = useRef(null);
+  const headerRef = useRef(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounter = useRef(0);
   
@@ -2495,11 +2521,24 @@ export default function App() {
   useEffect(() => {
     if (step === 1 && derivationStatus) {
       const t = setTimeout(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo({ top: 0, behavior: 'auto' });
       }, 50);
       return () => clearTimeout(t);
     }
   }, [derivationStatus, step]);
+
+  // Al volver al step 0, después de que el PDF se desmonte y baje la altura,
+  // traer la cabecera a la vista del scroll padre (Google Sites iframe).
+  useLayoutEffect(() => {
+    if (step !== 0) return undefined;
+    bringChromeIntoView(headerRef.current);
+    const t1 = setTimeout(() => bringChromeIntoView(headerRef.current), 80);
+    const t2 = setTimeout(() => bringChromeIntoView(headerRef.current), 300);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [step, file, sending]);
 
   const handleCloseSending = () => {
     if (autoCloseTimeoutRef.current) {
@@ -2513,7 +2552,8 @@ export default function App() {
     setProgress(0);
     setProgressText('');
     setSendingDetails(null);
-    resetAppViewport();
+    // El useLayoutEffect de step===0 completa el scroll al padre
+    bringChromeIntoView(headerRef.current);
   };
 
 
@@ -2528,7 +2568,10 @@ export default function App() {
               ? 'bg-gradient-to-br from-amber-500/[0.12] via-background to-amber-500/[0.04] dark:from-amber-950/20 dark:via-background dark:to-amber-950/5'
               : 'bg-background'}`}>
 
-        {/* ── Cabecera sticky para que título/acciones no se pierdan al volver del PDF ── */}
+        {/* Ancla para recuperar scroll del padre (Google Sites) al volver del PDF */}
+        <div id="pai-app-top" ref={headerRef} className="h-0 w-full overflow-hidden" aria-hidden="true" />
+
+        {/* ── Cabecera sticky ── */}
         <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-sm">
         <div className="max-w-6xl mx-auto w-full px-4 pt-5 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-6 border-b-2 border-[#003b73] msf-header-container">
           <div className="flex flex-col gap-2 min-w-0 flex-1">
@@ -2664,7 +2707,7 @@ export default function App() {
                   setFile(null);
                   setStep(0);
                   setDerivationStatus(null);
-                  resetAppViewport();
+                  bringChromeIntoView(headerRef.current);
                 }}
                 onSend={handleSend} sending={sending}
                 progress={progress} progressText={progressText}
