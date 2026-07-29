@@ -40,6 +40,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 // This avoids blob: URLs which are blocked by Chrome when the page is
 // embedded inside a Google Sites iframe.
 function PdfCanvasViewer({ file }) {
+  const shellRef = useRef(null);
   const containerRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -59,14 +60,26 @@ function PdfCanvasViewer({ file }) {
         if (cancelled) return;
         const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
         if (cancelled) return;
+        // Fit pages to the visible column width so intrinsic canvas size
+        // never expands the whole app layout (esp. inside Google Sites iframe).
+        const availableWidth = Math.max(
+          280,
+          (shellRef.current?.clientWidth || container?.clientWidth || 560) - 8
+        );
         for (let i = 1; i <= pdf.numPages; i++) {
           if (cancelled) return;
           const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 1.5 });
+          const baseViewport = page.getViewport({ scale: 1 });
+          const fitScale = availableWidth / baseViewport.width;
+          const scale = Math.min(1.35, Math.max(0.7, fitScale));
+          const viewport = page.getViewport({ scale });
           const canvas = document.createElement('canvas');
           canvas.className = 'pdf-page-canvas';
           canvas.width = viewport.width;
           canvas.height = viewport.height;
+          canvas.style.width = '100%';
+          canvas.style.height = 'auto';
+          canvas.style.maxWidth = '100%';
           if (i < pdf.numPages) {
             canvas.style.borderBottom = '1px solid var(--border)';
           }
@@ -89,7 +102,7 @@ function PdfCanvasViewer({ file }) {
   }, [file]);
 
   return (
-    <div className="w-full pdf-viewer-container px-4 pb-5 pt-3">
+    <div ref={shellRef} className="w-full min-w-0 pdf-viewer-container px-3 pb-4 pt-2">
       {loading && (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -103,7 +116,7 @@ function PdfCanvasViewer({ file }) {
       )}
       <div
         ref={containerRef}
-        className={`pdf-document-sheet w-full flex flex-col ${loading || error ? 'hidden' : ''}`}
+        className={`pdf-document-sheet w-full min-w-0 flex flex-col ${loading || error ? 'hidden' : ''}`}
       />
     </div>
   );
@@ -140,6 +153,24 @@ const normalizePhone = (raw) => {
   else if (p.length === 12 && p.startsWith('54') && p[2] !== '9') p = '549' + p.slice(2);
   return p;
 };
+
+/** Reset scroll/body locks after leaving the tall PDF preview (iframe-safe). */
+function resetAppViewport() {
+  const clear = () => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    document.documentElement.style.removeProperty('overflow');
+    document.documentElement.style.removeProperty('overflow-x');
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('padding-right');
+    document.body.style.removeProperty('pointer-events');
+  };
+  clear();
+  requestAnimationFrame(clear);
+  setTimeout(clear, 50);
+  setTimeout(clear, 200);
+}
 
 const USUARIO_CARGA_SKIP = new Set([
   'fecha', 'hora', 'estado', 'derivado', 'derivar', 'operacion', 'operación', 'operacionn', 'recibido',
@@ -523,7 +554,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
       }
       setMessageText(defaultMsg);
 
-      // Strict Preselection
+      // Preselect ALL contacts/groups assigned to this subtype (up to MAX_RECIPIENTS)
       const newSelected = new Set();
       if (info.subtipo && subtypesCatalog && subtypesCatalog.length > 0) {
         const cleanSub = info.subtipo.trim().toLowerCase();
@@ -531,19 +562,17 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
           item => item.subtipo.trim().toLowerCase() === cleanSub
         );
         if (matchedItem && matchedItem.derivar) {
-          // Preselect contact
-          const match = activeContacts.find(c => 
-            c.subtypes && c.subtypes.some(s => s.trim().toLowerCase() === cleanSub)
-          );
-          if (match) {
-            newSelected.add(`c_${match.id}`);
+          for (const c of activeContacts) {
+            if (newSelected.size >= MAX_RECIPIENTS) break;
+            if (c.subtypes?.some(s => s.trim().toLowerCase() === cleanSub)) {
+              newSelected.add(`c_${c.id}`);
+            }
           }
-          // Preselect group
-          const groupMatch = activeGroups.find(g =>
-            g.subtypes && g.subtypes.some(s => s.trim().toLowerCase() === cleanSub)
-          );
-          if (groupMatch && newSelected.size < MAX_RECIPIENTS) {
-            newSelected.add(`g_${groupMatch.id}`);
+          for (const g of activeGroups) {
+            if (newSelected.size >= MAX_RECIPIENTS) break;
+            if (g.subtypes?.some(s => s.trim().toLowerCase() === cleanSub)) {
+              newSelected.add(`g_${g.id}`);
+            }
           }
         }
       }
@@ -881,8 +910,8 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start preview-split-grid">
 
         <section className="min-w-0 preview-pdf-column">
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2.5 px-1 py-2.5 border-b border-border/60">
+          <div className="flex flex-col min-w-0 max-h-[min(72vh,820px)] overflow-hidden rounded-xl border border-border/60 bg-card/40">
+            <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border/60 shrink-0">
               <div className="w-7 h-7 rounded-lg bg-red-100 dark:bg-red-950 flex items-center justify-center flex-shrink-0">
                 <FileText className="w-4 h-4 text-red-500" />
               </div>
@@ -899,7 +928,9 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <PdfCanvasViewer file={file} />
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+              <PdfCanvasViewer file={file} />
+            </div>
           </div>
         </section>
 
@@ -2477,17 +2508,18 @@ export default function App() {
     }
     setFile(null);
     setStep(0);
+    setDerivationStatus(null);
     setSending(false);
     setProgress(0);
     setProgressText('');
     setSendingDetails(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    resetAppViewport();
   };
 
 
   return (
     <TooltipProvider>
-      <div className={`min-h-screen flex flex-col transition-all duration-500
+      <div className={`min-h-screen flex flex-col transition-all duration-500 overflow-x-clip
         ${derivationStatus === 'derivar' 
           ? 'bg-gradient-to-br from-emerald-500/[0.12] via-background to-emerald-500/[0.04] dark:from-emerald-950/30 dark:via-background dark:to-emerald-950/10' 
           : derivationStatus === 'no-derivar' 
@@ -2496,9 +2528,10 @@ export default function App() {
               ? 'bg-gradient-to-br from-amber-500/[0.12] via-background to-amber-500/[0.04] dark:from-amber-950/20 dark:via-background dark:to-amber-950/5'
               : 'bg-background'}`}>
 
-        {/* ── Cabecera simplificada y adaptada para Google Sites ── */}
-        <div className="max-w-6xl mx-auto w-full px-4 pt-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 border-b-2 border-[#003b73] msf-header-container">
-          <div className="flex flex-col gap-2">
+        {/* ── Cabecera sticky para que título/acciones no se pierdan al volver del PDF ── */}
+        <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-sm">
+        <div className="max-w-6xl mx-auto w-full px-4 pt-5 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-6 border-b-2 border-[#003b73] msf-header-container">
+          <div className="flex flex-col gap-2 min-w-0 flex-1">
             <h1 
               className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tighter leading-[0.95] uppercase select-none transition-all duration-300 text-foreground msf-title"
             >
@@ -2508,7 +2541,7 @@ export default function App() {
               Derivaciones · Atención Ciudadana
             </p>
           </div>
-          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+          <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button 
@@ -2580,9 +2613,10 @@ export default function App() {
             </Tooltip>
           </div>
         </div>
+        </div>
 
         {/* ── Main content (solo el flujo de envío de 2 pasos) ── */}
-        <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 overflow-x-hidden relative">
+        <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 overflow-x-clip relative min-w-0">
           {isDraggingFile && (
             <div className="fixed inset-0 z-[110] flex flex-col items-center justify-center bg-primary/10 dark:bg-primary/20 backdrop-blur-md animate-fade-in pointer-events-none">
               <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
@@ -2630,7 +2664,7 @@ export default function App() {
                   setFile(null);
                   setStep(0);
                   setDerivationStatus(null);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                  resetAppViewport();
                 }}
                 onSend={handleSend} sending={sending}
                 progress={progress} progressText={progressText}

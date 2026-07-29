@@ -169,10 +169,16 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     min-height: 100vh;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
   html {
     @apply font-sans;
+    overflow-x: clip;
+  }
+  #root {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: clip;
   }
   button, 
   select, 
@@ -361,7 +367,9 @@
 
 /* PDF: hoja blanca con borde/sombra sobre el fondo de la app */
 .pdf-viewer-container {
-  overflow: visible;
+  overflow-x: clip;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .pdf-document-sheet {
@@ -372,6 +380,8 @@
     0 1px 2px rgb(15 23 42 / 0.06),
     0 6px 20px rgb(15 23 42 / 0.1);
   overflow: hidden;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .dark .pdf-document-sheet {
@@ -384,9 +394,16 @@
 
 .pdf-page-canvas {
   display: block;
-  width: 100%;
-  height: auto;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
   background: #fff;
+}
+
+.preview-pdf-column,
+.preview-split-grid {
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ===== RESPONSIVE OPTIMIZATIONS FOR 720p / 1366x768 AND SHORT VIEWPORTS ===== */
