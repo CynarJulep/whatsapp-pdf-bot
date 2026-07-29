@@ -6,12 +6,13 @@ const qrcode = require('qrcode-terminal');
 // Polyfill WebSocket for Supabase in Node.js environments
 global.WebSocket = require('ws');
 const { createClient } = require('@supabase/supabase-js');
-const { runSacSingleClaimFetch } = require('./services/sacAutomation');
 const { 
     default: makeWASocket, 
     DisconnectReason, 
     BufferJSON, 
-    initAuthCreds 
+    initAuthCreds,
+    fetchLatestBaileysVersion,
+    Browsers
 } = require('@whiskeysockets/baileys');
 
 // Initialize Express App
@@ -24,11 +25,15 @@ const SESSION_ID = process.env.SESSION_ID || 'pai';
 const MOCK_CONNECTION = process.env.MOCK_CONNECTION === 'true';
 const STANDDOWN_ON_CONFLICT = process.env.STANDDOWN_ON_CONFLICT === 'true';
 const RECONNECT_WATCHDOG_MS = Number(process.env.RECONNECT_WATCHDOG_MS || 30000);
+// Cache WA Web version to avoid hammering the version endpoint during reconnect storms.
+const WA_VERSION_CACHE_MS = Math.max(5 * 60 * 1000, Number(process.env.WA_VERSION_CACHE_MS || 6 * 60 * 60 * 1000));
 const SAC_USER = process.env.SAC_USER || '';
 const SAC_PASSWORD = process.env.SAC_PASSWORD || '';
 const SAC_AUTOMATION_TOKEN = process.env.SAC_AUTOMATION_TOKEN || '';
+const SAC_FEATURE_ENABLED = process.env.SAC_FEATURE_ENABLED === 'true';
 const SAC_MAX_CONCURRENT_JOBS = Math.max(1, Number(process.env.SAC_MAX_CONCURRENT_JOBS || 1));
 const SAC_JOB_STALE_MS = Math.max(60000, Number(process.env.SAC_JOB_STALE_MS || 8 * 60 * 1000));
+let runSacSingleClaimFetch = null;
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -48,9 +53,59 @@ let isConnecting = false;
 let qrCode = null;
 let reconnectTimer = null;
 let socketSequence = 0;
+let consecutiveFailures = 0;
+let lastDisconnectCode = null;
+let lastDisconnectAt = null;
+let connectingStartedAt = null;
+let cachedWaVersion = null;
+let cachedWaVersionAt = 0;
+let cachedWaVersionIsLatest = false;
 const sacJobsCache = new Map();
 const sacJobQueue = [];
 let activeSacJobs = 0;
+
+/**
+ * Resolve current WhatsApp Web protocol version.
+ * Uses a short/medium cache for normal reconnects, and force-refreshes after 405
+ * (client_too_old) so pairing recovers without manual intervention.
+ */
+async function resolveWaWebVersion({ force = false } = {}) {
+    const cacheAgeMs = Date.now() - cachedWaVersionAt;
+    const cacheFresh = cachedWaVersion && cacheAgeMs < WA_VERSION_CACHE_MS;
+    if (!force && cacheFresh) {
+        return {
+            version: cachedWaVersion,
+            isLatest: cachedWaVersionIsLatest,
+            fromCache: true,
+            cacheAgeMs
+        };
+    }
+
+    try {
+        const { version, isLatest } = await fetchLatestBaileysVersion();
+        cachedWaVersion = version;
+        cachedWaVersionIsLatest = !!isLatest;
+        cachedWaVersionAt = Date.now();
+        return {
+            version,
+            isLatest: !!isLatest,
+            fromCache: false,
+            cacheAgeMs: 0
+        };
+    } catch (err) {
+        console.warn('[WhatsApp] Failed to fetch latest WA version:', err.message || err);
+        if (cachedWaVersion) {
+            return {
+                version: cachedWaVersion,
+                isLatest: cachedWaVersionIsLatest,
+                fromCache: true,
+                cacheAgeMs,
+                fetchError: true
+            };
+        }
+        throw err;
+    }
+}
 
 function clearReconnectTimer() {
     if (!reconnectTimer) return;
@@ -58,15 +113,31 @@ function clearReconnectTimer() {
     reconnectTimer = null;
 }
 
+function getReconnectDelayMs(statusCode) {
+    // 405 = client_too_old / rejected handshake. Back off hard to avoid storming WA.
+    if (statusCode === 405) {
+        return Math.min(120000, 15000 * Math.max(1, consecutiveFailures));
+    }
+    return Math.min(60000, 5000 * Math.max(1, consecutiveFailures));
+}
+
 function scheduleReconnect(delayMs, reason) {
     if (reconnectTimer) {
         console.log(`[WhatsApp] Reconnect already scheduled. Keeping existing timer (${reason}).`);
         return;
     }
+    console.log(`[WhatsApp] Scheduling reconnect in ${delayMs}ms (${reason}).`);
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connectToWhatsApp();
     }, delayMs);
+}
+
+function getSacAutomationRunner() {
+    if (!runSacSingleClaimFetch) {
+        ({ runSacSingleClaimFetch } = require('./services/sacAutomation'));
+    }
+    return runSacSingleClaimFetch;
 }
 
 /**
@@ -198,11 +269,14 @@ async function connectToWhatsApp() {
         isConnected = true;
         isConnecting = false;
         qrCode = null;
+        consecutiveFailures = 0;
+        lastDisconnectCode = null;
         clearReconnectTimer();
         return;
     }
     clearReconnectTimer();
     isConnecting = true;
+    connectingStartedAt = Date.now();
     try {
         // Cleanup existing socket if any to prevent duplicate instances
         if (sock) {
@@ -219,12 +293,21 @@ async function connectToWhatsApp() {
 
         console.log(`[WhatsApp] Connecting session: ${SESSION_ID}...`);
         const { state, saveCreds } = await useSupabaseAuthState(supabase, SESSION_ID);
+        const forceVersionRefresh = lastDisconnectCode === 405 || consecutiveFailures > 0;
+        const { version, isLatest, fromCache } = await resolveWaWebVersion({ force: forceVersionRefresh });
+        console.log(
+            `[WhatsApp] Using WA Web version ${version.join('.')}` +
+            `${isLatest ? ' (latest)' : ''}${fromCache ? ' [cache]' : ' [fresh]'}`
+        );
 
         sock = makeWASocket({
             auth: state,
+            version,
             printQRInTerminal: false, // We print it manually to have full control
             logger: pino({ level: 'info' }),
-            browser: ['Windows', 'Chrome', '122.0.0.0']
+            browser: Browsers.macOS('Chrome'),
+            syncFullHistory: false,
+            markOnlineOnConnect: false
         });
 
         // Sync credentials whenever update is fired
@@ -243,6 +326,8 @@ async function connectToWhatsApp() {
             if (qr) {
                 qrCode = qr;
                 isConnecting = false;
+                consecutiveFailures = 0;
+                lastDisconnectCode = null;
                 console.log('\n--- ESCANEA ESTE CÓDIGO QR CON WHATSAPP BUSINESS ---');
                 qrcode.generate(qr, { small: true });
                 console.log('-----------------------------------------------------\n');
@@ -252,16 +337,25 @@ async function connectToWhatsApp() {
                 isConnected = false;
                 qrCode = null;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
+                lastDisconnectCode = statusCode ?? null;
+                lastDisconnectAt = new Date().toISOString();
+                consecutiveFailures += 1;
                 
                 // If it is a conflict (session replaced), do not auto-reconnect to avoid infinite loop
                 const isConflict = statusCode === 440 || lastDisconnect?.error?.message?.includes('conflict');
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !isConflict;
+                const delayMs = getReconnectDelayMs(statusCode);
                 
-                console.warn(`[WhatsApp] Connection #${socketId} closed. Status Code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+                console.warn(`[WhatsApp] Connection #${socketId} closed. Status Code: ${statusCode}. Failures: ${consecutiveFailures}. Reconnecting: ${shouldReconnect}`);
+
+                if (statusCode === 405) {
+                    // Invalidate version cache so the next attempt picks a fresher WA build.
+                    cachedWaVersionAt = 0;
+                }
 
                 if (shouldReconnect) {
                     isConnecting = true;
-                    scheduleReconnect(5000, `close-${socketId}`);
+                    scheduleReconnect(delayMs, `close-${socketId}-code-${statusCode}`);
                 } else if (isConflict) {
                     qrCode = null;
                     if (STANDDOWN_ON_CONFLICT) {
@@ -274,7 +368,7 @@ async function connectToWhatsApp() {
                             try { socketRef.end(); } catch (_) { /* ignore */ }
                             sock = null;
                         }
-                        scheduleReconnect(5000, `conflict-${socketId}`);
+                        scheduleReconnect(delayMs, `conflict-${socketId}`);
                     }
                 } else {
                     isConnecting = true;
@@ -284,12 +378,15 @@ async function connectToWhatsApp() {
                     if (sock === socketRef) {
                         sock = null;
                     }
-                    scheduleReconnect(5000, `loggedout-${socketId}`);
+                    scheduleReconnect(delayMs, `loggedout-${socketId}`);
                 }
             } else if (connection === 'open') {
                 isConnected = true;
                 isConnecting = false;
                 qrCode = null;
+                consecutiveFailures = 0;
+                lastDisconnectCode = null;
+                connectingStartedAt = null;
                 clearReconnectTimer();
                 console.log(`[WhatsApp] Connection established successfully! Logged in as: ${sock.user.name || sock.user.id}`);
             }
@@ -297,8 +394,11 @@ async function connectToWhatsApp() {
 
     } catch (err) {
         console.error('[WhatsApp] Critical error during initialization:', err);
-        isConnecting = false;
-        scheduleReconnect(10000, 'critical-init'); // retry after 10s
+        consecutiveFailures += 1;
+        lastDisconnectCode = 'init_error';
+        lastDisconnectAt = new Date().toISOString();
+        isConnecting = true;
+        scheduleReconnect(getReconnectDelayMs(null), 'critical-init');
     }
 }
 
@@ -330,17 +430,29 @@ setInterval(async () => {
 
 // Health Check Endpoint
 app.get('/status', (req, res) => {
+    const connectingForMs = isConnecting && connectingStartedAt
+        ? Date.now() - connectingStartedAt
+        : 0;
+    const pairingBlocked = !isConnected && !qrCode && lastDisconnectCode === 405;
     res.status(200).json({
         success: true,
         connected: isConnected,
         connecting: isConnecting,
         session_id: SESSION_ID,
         mock_connection: MOCK_CONNECTION,
+        sac_enabled: SAC_FEATURE_ENABLED,
         phone_user: isConnected
             ? (MOCK_CONNECTION ? '549342555555:12@s.whatsapp.net' : (sock?.user?.id || null))
             : null,
         qr: qrCode,
-        stalled: !isConnected && !isConnecting && !qrCode
+        stalled: !isConnected && !isConnecting && !qrCode,
+        last_disconnect_code: lastDisconnectCode,
+        last_disconnect_at: lastDisconnectAt,
+        consecutive_failures: consecutiveFailures,
+        connecting_for_ms: connectingForMs,
+        pairing_blocked: pairingBlocked,
+        wa_version: cachedWaVersion ? cachedWaVersion.join('.') : null,
+        wa_version_cached_at: cachedWaVersionAt || null
     });
 });
 
@@ -559,7 +671,12 @@ async function processSacJob(jobId) {
     await updateSacJob(jobId, { status: 'running', started_at: startedAt, error_message: null });
 
     try {
-        const { pdfBuffer, suggestedFileName } = await runSacSingleClaimFetch({
+        if (!SAC_FEATURE_ENABLED) {
+            throw new Error('La búsqueda SAC está deshabilitada temporalmente.');
+        }
+
+        const runFetch = getSacAutomationRunner();
+        const { pdfBuffer, suggestedFileName } = await runFetch({
             numeroReclamo: current.numero_reclamo,
             anio: current.anio,
             usuario: SAC_USER,
@@ -597,6 +714,14 @@ async function processSacJob(jobId) {
         });
     }
 }
+
+app.use('/sac', (req, res, next) => {
+    if (SAC_FEATURE_ENABLED) return next();
+    return res.status(410).json({
+        success: false,
+        message: 'La búsqueda automática de reclamos SAC está deshabilitada temporalmente.'
+    });
+});
 
 app.post('/sac/fetch-single-claim', async (req, res) => {
     if (!isSacAuthAllowed(req)) {
@@ -846,6 +971,9 @@ app.post('/reconnect', async (req, res) => {
     qrCode = null;
     isConnected = false;
     isConnecting = true;
+    consecutiveFailures = 0;
+    lastDisconnectCode = null;
+    clearReconnectTimer();
     if (sock) {
         try { sock.ev.removeAllListeners(); sock.end(); } catch (_) { /* ignore */ }
         sock = null;
@@ -889,6 +1017,9 @@ app.post('/disconnect', async (req, res) => {
         isConnected = false;
         isConnecting = true;
         qrCode = null;
+        consecutiveFailures = 0;
+        lastDisconnectCode = null;
+        clearReconnectTimer();
         if (sock) {
             try {
                 await sock.logout();
@@ -939,5 +1070,8 @@ setInterval(() => {
 // Start Express Server & WhatsApp Connection
 app.listen(PORT, () => {
     console.log(`[Server] Webhook server running on port: ${PORT}`);
+    if (!SAC_FEATURE_ENABLED) {
+        console.log('[SAC] Feature flag desactivada. Endpoints /sac en modo deshabilitado.');
+    }
     connectToWhatsApp();
 });

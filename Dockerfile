@@ -1,23 +1,20 @@
-# Debian slim: Playwright/Chromium no funciona bien en Alpine
-FROM node:20-bookworm-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# Use lightweight alpine Node image
+FROM node:20-alpine
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
+
+# Install dependencies
 RUN npm install --production
 
-# Dependencias del navegador para automatización SAC
-RUN npx playwright install-deps chromium \
-    && npx playwright install chromium
-
+# Copy remaining code files
 COPY . .
 
+# Hugging Face Spaces routes traffic through port 7860
 EXPOSE 7860
 ENV PORT=7860
 
+# Run Express server
 CMD ["node", "index.js"]
