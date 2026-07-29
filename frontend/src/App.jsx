@@ -155,10 +155,8 @@ const normalizePhone = (raw) => {
 };
 
 /**
- * Reset scroll after leaving the tall PDF preview.
- * En Google Sites el scroll real suele ser del PADRE (no del iframe).
- * window.scrollTo solo mueve el iframe; scrollIntoView del header
- * también hace scroll del documento padre para que la cabecera vuelva a verse.
+ * Lleva la cabecera PAI al tope del viewport, incluyendo el scroll del PADRE
+ * (Google Sites iframe). Nunca apuntar al banner de derivación: eso esconde el header.
  */
 function bringChromeIntoView(anchorEl) {
   const clearBodyLocks = () => {
@@ -175,31 +173,34 @@ function bringChromeIntoView(anchorEl) {
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
 
-    const target = anchorEl || document.getElementById('pai-app-top');
+    const target =
+      anchorEl ||
+      document.getElementById('pai-app-header') ||
+      document.getElementById('pai-app-top');
+
     if (target) {
-      // 'instant' / 'auto' evita pelear con smooth scroll del padre
       try {
-        target.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
+        // block:start = el header queda arriba de TODO (padre + iframe)
+        target.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
       } catch {
         target.scrollIntoView(true);
       }
     }
 
-    // Fallback extra para algunos embeds
     try {
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: 'pai-scroll-top' }, '*');
       }
     } catch {
-      /* cross-origin: ignore */
+      /* cross-origin */
     }
   };
 
   run();
   requestAnimationFrame(run);
   setTimeout(run, 50);
-  setTimeout(run, 150);
-  setTimeout(run, 400);
+  setTimeout(run, 200);
+  setTimeout(run, 500);
 }
 
 const USUARIO_CARGA_SKIP = new Set([
@@ -535,13 +536,6 @@ function PreviewAndPick({ file, contacts, groups = [], shipments = [], subtypesC
   const [isEditingMessage, setIsEditingMessage] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
-  const derivationBannerRef = useRef(null);
-
-  const scrollToDerivationBanner = useCallback(() => {
-    // NO usar scrollIntoView acá: en Google Sites mueve el scroll del PADRE
-    // y deja el header del iframe fuera de la ventana visible.
-    window.scrollTo({ top: 0, behavior: 'auto' });
-  }, []);
 
   const activeContacts = contacts.filter(c => c.is_active);
   const activeGroups = groups.filter(g => g.is_active);
@@ -605,12 +599,12 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     });
   }, [file, subtypesCatalog, contacts, groups]);
 
+  // Al terminar de analizar el PDF: ir al TOPE ABSOLUTO (header), nunca al banner.
   useEffect(() => {
-    if (!extracting) {
-      const t = setTimeout(scrollToDerivationBanner, 80);
-      return () => clearTimeout(t);
-    }
-  }, [extracting, scrollToDerivationBanner]);
+    if (extracting) return undefined;
+    const t = setTimeout(() => bringChromeIntoView(document.getElementById('pai-app-header')), 60);
+    return () => clearTimeout(t);
+  }, [extracting]);
 
   const matchedCatalogItem = useMemo(() => {
     if (!pdfInfo.subtipo || !subtypesCatalog || subtypesCatalog.length === 0) return null;
@@ -757,7 +751,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
   return (
     <div className="animate-fade-slide-up w-full">
       {/* PDF info banner / PAI catalog matching */}
-      <div ref={derivationBannerRef} className="flex flex-col gap-3 mb-6 scroll-mt-24">
+      <div className="flex flex-col gap-3 mb-6">
         {extracting ? (
           <div className="flex items-center gap-3 text-base sm:text-lg text-muted-foreground py-8 bg-card border rounded-3xl justify-center shadow-inner animate-pulse">
             <Loader2 className="w-6 h-6 animate-spin text-primary shrink-0" />
@@ -2385,7 +2379,7 @@ export default function App() {
         setFile(droppedFile);
         setStep(1);
         requestAnimationFrame(() => {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+          bringChromeIntoView(headerRef.current);
         });
       } else if (droppedFile) {
         showToast('Carga cancelada: Solo archivos PDF de hasta 50 MB.', 'error');
@@ -2510,33 +2504,25 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Al abrir el PDF: anclar al header (tope), no al banner de estado.
     if (step === 1 && file) {
-      const t = setTimeout(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }, 50);
+      const t = setTimeout(() => bringChromeIntoView(headerRef.current), 40);
       return () => clearTimeout(t);
     }
+    return undefined;
   }, [step, file]);
 
-  useEffect(() => {
-    if (step === 1 && derivationStatus) {
-      const t = setTimeout(() => {
-        window.scrollTo({ top: 0, behavior: 'auto' });
-      }, 50);
-      return () => clearTimeout(t);
-    }
-  }, [derivationStatus, step]);
-
-  // Al volver al step 0, después de que el PDF se desmonte y baje la altura,
-  // traer la cabecera a la vista del scroll padre (Google Sites iframe).
+  // Al volver al step 0, después de desmontar el PDF, recuperar el tope en el padre.
   useLayoutEffect(() => {
     if (step !== 0) return undefined;
     bringChromeIntoView(headerRef.current);
     const t1 = setTimeout(() => bringChromeIntoView(headerRef.current), 80);
-    const t2 = setTimeout(() => bringChromeIntoView(headerRef.current), 300);
+    const t2 = setTimeout(() => bringChromeIntoView(headerRef.current), 350);
+    const t3 = setTimeout(() => bringChromeIntoView(headerRef.current), 700);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
     };
   }, [step, file, sending]);
 
@@ -2552,7 +2538,6 @@ export default function App() {
     setProgress(0);
     setProgressText('');
     setSendingDetails(null);
-    // El useLayoutEffect de step===0 completa el scroll al padre
     bringChromeIntoView(headerRef.current);
   };
 
@@ -2568,11 +2553,12 @@ export default function App() {
               ? 'bg-gradient-to-br from-amber-500/[0.12] via-background to-amber-500/[0.04] dark:from-amber-950/20 dark:via-background dark:to-amber-950/5'
               : 'bg-background'}`}>
 
-        {/* Ancla para recuperar scroll del padre (Google Sites) al volver del PDF */}
-        <div id="pai-app-top" ref={headerRef} className="h-0 w-full overflow-hidden" aria-hidden="true" />
-
-        {/* ── Cabecera sticky ── */}
-        <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-sm">
+        {/* ── Cabecera: ancla real (altura > 0) para scrollIntoView del padre ── */}
+        <div
+          id="pai-app-header"
+          ref={headerRef}
+          className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-sm"
+        >
         <div className="max-w-6xl mx-auto w-full px-4 pt-5 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-6 border-b-2 border-[#003b73] msf-header-container">
           <div className="flex flex-col gap-2 min-w-0 flex-1">
             <h1 
@@ -2686,7 +2672,7 @@ export default function App() {
                   setFile(f);
                   setStep(1);
                   requestAnimationFrame(() => {
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    bringChromeIntoView(headerRef.current);
                   });
                 }} 
                 botStatus={botStatus}
