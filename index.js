@@ -136,9 +136,19 @@ function clearReconnectTimer() {
 }
 
 function getReconnectDelayMs(statusCode) {
+    // After a successful QR/pairing scan, WA closes with restartRequired (515).
+    // Reconnect immediately so the phone finishes linking; a long delay causes
+    // "No se pudo vincular el dispositivo. Vuelve a intentarlo más tarde".
+    if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+        return 300;
+    }
     // 405 = client_too_old / rejected handshake. Back off hard to avoid storming WA.
     if (statusCode === 405) {
         return Math.min(120000, 15000 * Math.max(1, consecutiveFailures));
+    }
+    // 408 = QR refs exhausted / request timeout — brief pause then fresh QR
+    if (statusCode === 408) {
+        return 2000;
     }
     return Math.min(60000, 5000 * Math.max(1, consecutiveFailures));
 }
@@ -362,8 +372,14 @@ async function connectToWhatsApp() {
             markOnlineOnConnect: false
         });
 
-        // Sync credentials whenever update is fired
-        sock.ev.on('creds.update', saveCreds);
+        // Sync credentials whenever update is fired (await so pairing 515 doesn't race)
+        sock.ev.on('creds.update', async () => {
+            try {
+                await saveCreds();
+            } catch (err) {
+                console.error('[WhatsApp] Error saving creds:', err);
+            }
+        });
         const socketRef = sock;
         const socketId = ++socketSequence;
 
@@ -391,14 +407,19 @@ async function connectToWhatsApp() {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 lastDisconnectCode = statusCode ?? null;
                 lastDisconnectAt = new Date().toISOString();
-                consecutiveFailures += 1;
+                const isRestartRequired =
+                    statusCode === DisconnectReason.restartRequired || statusCode === 515;
+                // 515 is expected right after scanning QR — do not treat as a failure.
+                if (!isRestartRequired) {
+                    consecutiveFailures += 1;
+                }
                 
                 // If it is a conflict (session replaced), do not auto-reconnect to avoid infinite loop
                 const isConflict = statusCode === 440 || lastDisconnect?.error?.message?.includes('conflict');
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !isConflict;
                 const delayMs = getReconnectDelayMs(statusCode);
                 
-                console.warn(`[WhatsApp] Connection #${socketId} closed. Status Code: ${statusCode}. Failures: ${consecutiveFailures}. Reconnecting: ${shouldReconnect}`);
+                console.warn(`[WhatsApp] Connection #${socketId} closed. Status Code: ${statusCode}. Failures: ${consecutiveFailures}. Reconnecting: ${shouldReconnect}${isRestartRequired ? ' (pairing restart)' : ''}`);
 
                 if (isStaleProtocolCode(statusCode)) {
                     // Invalidate version cache so the next attempt picks a fresher WA build.
@@ -408,6 +429,15 @@ async function connectToWhatsApp() {
 
                 if (shouldReconnect) {
                     isConnecting = true;
+                    // Flush auth to Supabase before reconnecting after pairing (515).
+                    if (isRestartRequired) {
+                        try {
+                            await saveCreds();
+                            console.log('[WhatsApp] Creds flushed before pairing reconnect.');
+                        } catch (flushErr) {
+                            console.error('[WhatsApp] Failed to flush creds before reconnect:', flushErr);
+                        }
+                    }
                     scheduleReconnect(delayMs, `close-${socketId}-code-${statusCode}`);
                 } else if (isConflict) {
                     qrCode = null;
