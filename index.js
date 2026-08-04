@@ -23,8 +23,22 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const SESSION_ID = process.env.SESSION_ID || 'pai';
 const MOCK_CONNECTION = process.env.MOCK_CONNECTION === 'true';
+const BOT_API_KEY = process.env.BOT_API_KEY || '';
 const STANDDOWN_ON_CONFLICT = process.env.STANDDOWN_ON_CONFLICT === 'true';
 const RECONNECT_WATCHDOG_MS = Number(process.env.RECONNECT_WATCHDOG_MS || 30000);
+
+/** If BOT_API_KEY is set, require matching x-api-key header. If unset, allow (local/dev). */
+function requireApiKey(req, res, next) {
+    if (!BOT_API_KEY) return next();
+    const key = req.headers['x-api-key'];
+    if (!key || key !== BOT_API_KEY) {
+        return res.status(401).json({
+            success: false,
+            message: 'API key inválida o ausente (header x-api-key).'
+        });
+    }
+    return next();
+}
 // Cache WA Web version to avoid hammering the version endpoint during reconnect storms.
 const WA_VERSION_CACHE_MS = Math.max(5 * 60 * 1000, Number(process.env.WA_VERSION_CACHE_MS || 6 * 60 * 60 * 1000));
 const SAC_USER = process.env.SAC_USER || '';
@@ -828,7 +842,104 @@ app.get('/sac/jobs/:jobId', async (req, res) => {
     }
 });
 
-app.post('/send-pdf', async (req, res) => {
+app.post('/send-text', requireApiKey, async (req, res) => {
+    const { phoneNumber, text, contactName } = req.body;
+
+    if (!phoneNumber || typeof text !== 'string' || !text.trim()) {
+        return res.status(400).json({
+            success: false,
+            message: 'Parámetros "phoneNumber" y "text" son requeridos.'
+        });
+    }
+
+    const trimmedText = text.trim();
+    if (trimmedText.length > 4000) {
+        return res.status(400).json({
+            success: false,
+            message: 'El texto no puede superar 4000 caracteres.'
+        });
+    }
+
+    if (!isConnected || (!sock && !MOCK_CONNECTION)) {
+        return res.status(503).json({
+            success: false,
+            message: 'El bot de WhatsApp no está conectado o inicializado.'
+        });
+    }
+
+    const cleanNumber = String(phoneNumber).replace(/[^0-9]/g, '');
+    if (cleanNumber.length < 8) {
+        return res.status(400).json({
+            success: false,
+            message: 'El número telefónico provisto es inválido o muy corto.'
+        });
+    }
+
+    const jid = `${cleanNumber}@s.whatsapp.net`;
+
+    try {
+        const delayMs = Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
+        console.log(`[Webhook] Queueing text delivery. Delaying for ${delayMs}ms (Anti-ban)...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+
+        let response;
+        if (MOCK_CONNECTION) {
+            console.log(`[Webhook] [MOCK] Simulating text to JID: ${jid}...`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            response = { key: { id: `MOCK_${Date.now()}` } };
+        } else {
+            console.log(`[Webhook] Sending text to JID: ${jid}...`);
+            response = await sock.sendMessage(jid, { text: trimmedText });
+        }
+
+        console.log(`[Webhook] Text successfully sent. Message ID: ${response.key.id}`);
+
+        await logShipment({
+            contact_name: contactName || 'Desconocido',
+            contact_phone: cleanNumber,
+            solicitud_nro: null,
+            subtipo: 'licencia_texto',
+            file_name: null,
+            usuario_carga: null,
+            status: 'success',
+            message_text: trimmedText,
+            is_group: false,
+            group_jid: null
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: MOCK_CONNECTION
+                ? 'Simulación: el texto NO se envió por WhatsApp (MOCK_CONNECTION=true).'
+                : 'Mensaje enviado exitosamente.',
+            messageId: response.key.id,
+            mock: MOCK_CONNECTION
+        });
+    } catch (err) {
+        console.error('[Webhook] Error sending text:', err);
+
+        await logShipment({
+            contact_name: contactName || 'Desconocido',
+            contact_phone: cleanNumber,
+            solicitud_nro: null,
+            subtipo: 'licencia_texto',
+            file_name: null,
+            usuario_carga: null,
+            status: 'failed',
+            message_text: trimmedText,
+            is_group: false,
+            group_jid: null
+        });
+
+        return res.status(500).json({
+            success: false,
+            message: 'Error interno del servidor al enviar el mensaje de texto.',
+            error: err.message
+        });
+    }
+});
+
+app.post('/send-pdf', requireApiKey, async (req, res) => {
     const { fileName, phoneNumber, groupJid, caption, contactName, solicitudNro, subtipo, displayName, isGroup, usuarioCarga } = req.body;
 
     // 1. Validation
