@@ -401,6 +401,10 @@ async function connectToWhatsApp() {
                 console.log('-----------------------------------------------------\n');
             }
 
+            if (update.isNewLogin) {
+                console.log('[WhatsApp] isNewLogin=true — pairing accepted by WhatsApp, waiting for 515 restart…');
+            }
+
             if (connection === 'close') {
                 isConnected = false;
                 qrCode = null;
@@ -1142,7 +1146,8 @@ app.post('/send-pdf', requireApiKey, async (req, res) => {
     }
 });
 
-// Force a fresh WhatsApp connection attempt (keeps credentials unless a QR is needed)
+// Force a fresh WhatsApp connection attempt (keeps credentials unless a QR is needed).
+// Soft: ends the socket WITHOUT logout — safe to refresh QR while pairing.
 app.post('/reconnect', async (req, res) => {
     console.log(`[WhatsApp] Manual reconnect requested for session: ${SESSION_ID}`);
     if (MOCK_CONNECTION) {
@@ -1162,11 +1167,58 @@ app.post('/reconnect', async (req, res) => {
     lastDisconnectCode = null;
     clearReconnectTimer();
     if (sock) {
+        // NEVER logout here — logout signals WA to remove the companion and can rate-limit
+        // new pairings from this IP when spammed during QR linking.
         try { sock.ev.removeAllListeners(); sock.end(); } catch (_) { /* ignore */ }
         sock = null;
     }
     setTimeout(connectToWhatsApp, 1000);
     return res.status(200).json({ success: true, message: 'Reconexión iniciada.' });
+});
+
+/**
+ * Pairing-code login (alternative to QR).
+ * Body: { phoneNumber: "549341xxxxxxx" }  E.164 digits, no "+"
+ * Call while the socket is waiting for QR / connecting.
+ */
+app.post('/pair-code', requireApiKey, async (req, res) => {
+    if (MOCK_CONNECTION) {
+        return res.status(200).json({ success: true, code: 'ABCD1234', message: 'Código simulado.' });
+    }
+    if (isConnected) {
+        return res.status(400).json({
+            success: false,
+            message: 'Ya hay una sesión conectada. Desconectá primero si querés re-vincular.'
+        });
+    }
+    if (!sock) {
+        return res.status(503).json({
+            success: false,
+            message: 'El socket aún no está listo. Esperá el QR / reconnect y reintentá en unos segundos.'
+        });
+    }
+    const raw = String(req.body?.phoneNumber || '').replace(/[^0-9]/g, '');
+    if (raw.length < 10) {
+        return res.status(400).json({
+            success: false,
+            message: 'phoneNumber inválido. Usá E.164 sin +: ej. 5493415551234'
+        });
+    }
+    try {
+        console.log(`[WhatsApp] requestPairingCode for ${raw} (session ${SESSION_ID})`);
+        const code = await sock.requestPairingCode(raw);
+        return res.status(200).json({
+            success: true,
+            code,
+            message: 'Ingresá este código en WhatsApp → Dispositivos vinculados → Vincular con número de teléfono.'
+        });
+    } catch (err) {
+        console.error('[WhatsApp] requestPairingCode failed:', err);
+        return res.status(500).json({
+            success: false,
+            message: err?.message || 'No se pudo generar el código de vinculación.'
+        });
+    }
 });
 
 // Endpoint to completely disconnect WhatsApp session and clear credentials
@@ -1200,7 +1252,9 @@ app.post('/disconnect', async (req, res) => {
             console.error('[WhatsApp] Error deleting credentials from Supabase:', errCreds || errKeys);
         }
 
-        // 2. Terminate the WhatsApp Socket connection and logout cleanly
+        // 2. Terminate socket. Only call logout() if we were actually paired —
+        // logout on an unpaired socket + rapid retries rate-limits new linking on WA.
+        const wasPaired = isConnected;
         isConnected = false;
         isConnecting = true;
         qrCode = null;
@@ -1209,9 +1263,15 @@ app.post('/disconnect', async (req, res) => {
         clearReconnectTimer();
         if (sock) {
             try {
-                await sock.logout();
+                if (wasPaired) {
+                    await sock.logout();
+                } else {
+                    console.log('[WhatsApp] Soft end (not paired) — skipping logout to avoid WA rate-limit.');
+                    sock.ev.removeAllListeners();
+                    sock.end();
+                }
             } catch (logoutErr) {
-                console.warn('[WhatsApp] Error logging out socket (might already be closed):', logoutErr);
+                console.warn('[WhatsApp] Error closing socket:', logoutErr);
                 try {
                     sock.end();
                 } catch (endErr) {
@@ -1221,7 +1281,7 @@ app.post('/disconnect', async (req, res) => {
             sock = null;
         }
 
-        // 3. Trigger reconnection to start fresh with a new QR code immediately
+        // 3. Trigger reconnection to start fresh with a new QR code
         setTimeout(connectToWhatsApp, 3000);
 
         return res.status(200).json({
