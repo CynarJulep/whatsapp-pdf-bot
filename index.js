@@ -40,7 +40,13 @@ function requireApiKey(req, res, next) {
     return next();
 }
 // Cache WA Web version to avoid hammering the version endpoint during reconnect storms.
-const WA_VERSION_CACHE_MS = Math.max(5 * 60 * 1000, Number(process.env.WA_VERSION_CACHE_MS || 6 * 60 * 60 * 1000));
+// Default 1h (was 6h): shorter cache recovers faster when WhatsApp rolls protocol versions.
+const WA_VERSION_CACHE_MS = Math.max(5 * 60 * 1000, Number(process.env.WA_VERSION_CACHE_MS || 60 * 60 * 1000));
+// Proactive version refresh while connected (default every 45 min).
+const WA_VERSION_PROACTIVE_REFRESH_MS = Math.max(
+    10 * 60 * 1000,
+    Number(process.env.WA_VERSION_PROACTIVE_REFRESH_MS || 45 * 60 * 1000)
+);
 const SAC_USER = process.env.SAC_USER || '';
 const SAC_PASSWORD = process.env.SAC_PASSWORD || '';
 const SAC_AUTOMATION_TOKEN = process.env.SAC_AUTOMATION_TOKEN || '';
@@ -48,6 +54,8 @@ const SAC_FEATURE_ENABLED = process.env.SAC_FEATURE_ENABLED === 'true';
 const SAC_MAX_CONCURRENT_JOBS = Math.max(1, Number(process.env.SAC_MAX_CONCURRENT_JOBS || 1));
 const SAC_JOB_STALE_MS = Math.max(60000, Number(process.env.SAC_JOB_STALE_MS || 8 * 60 * 1000));
 let runSacSingleClaimFetch = null;
+let waVersionProactiveTimer = null;
+let coldStartVersionForced = false;
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -133,6 +141,30 @@ function getReconnectDelayMs(statusCode) {
         return Math.min(120000, 15000 * Math.max(1, consecutiveFailures));
     }
     return Math.min(60000, 5000 * Math.max(1, consecutiveFailures));
+}
+
+/** Status codes that usually mean the WA Web version / handshake is stale. */
+function isStaleProtocolCode(statusCode) {
+    return statusCode === 405 || statusCode === 410 || statusCode === 428;
+}
+
+function startProactiveWaVersionRefresh() {
+    if (waVersionProactiveTimer) return;
+    waVersionProactiveTimer = setInterval(() => {
+        resolveWaWebVersion({ force: true })
+            .then(({ version, isLatest }) => {
+                console.log(
+                    `[WhatsApp] Proactive WA version refresh → ${version.join('.')}` +
+                    `${isLatest ? ' (latest)' : ''}`
+                );
+            })
+            .catch((err) => {
+                console.warn('[WhatsApp] Proactive WA version refresh failed:', err.message || err);
+            });
+    }, WA_VERSION_PROACTIVE_REFRESH_MS);
+    if (typeof waVersionProactiveTimer.unref === 'function') {
+        waVersionProactiveTimer.unref();
+    }
 }
 
 function scheduleReconnect(delayMs, reason) {
@@ -307,12 +339,18 @@ async function connectToWhatsApp() {
 
         console.log(`[WhatsApp] Connecting session: ${SESSION_ID}...`);
         const { state, saveCreds } = await useSupabaseAuthState(supabase, SESSION_ID);
-        const forceVersionRefresh = lastDisconnectCode === 405 || consecutiveFailures > 0;
+        // Always fetch a fresh WA version on cold start and after protocol / handshake failures.
+        const forceVersionRefresh =
+            !coldStartVersionForced ||
+            isStaleProtocolCode(lastDisconnectCode) ||
+            consecutiveFailures > 0;
+        if (!coldStartVersionForced) coldStartVersionForced = true;
         const { version, isLatest, fromCache } = await resolveWaWebVersion({ force: forceVersionRefresh });
         console.log(
             `[WhatsApp] Using WA Web version ${version.join('.')}` +
             `${isLatest ? ' (latest)' : ''}${fromCache ? ' [cache]' : ' [fresh]'}`
         );
+        startProactiveWaVersionRefresh();
 
         sock = makeWASocket({
             auth: state,
@@ -362,9 +400,10 @@ async function connectToWhatsApp() {
                 
                 console.warn(`[WhatsApp] Connection #${socketId} closed. Status Code: ${statusCode}. Failures: ${consecutiveFailures}. Reconnecting: ${shouldReconnect}`);
 
-                if (statusCode === 405) {
+                if (isStaleProtocolCode(statusCode)) {
                     // Invalidate version cache so the next attempt picks a fresher WA build.
                     cachedWaVersionAt = 0;
+                    console.warn(`[WhatsApp] Stale protocol signal (${statusCode}). WA version cache invalidated.`);
                 }
 
                 if (shouldReconnect) {
@@ -466,7 +505,14 @@ app.get('/status', (req, res) => {
         connecting_for_ms: connectingForMs,
         pairing_blocked: pairingBlocked,
         wa_version: cachedWaVersion ? cachedWaVersion.join('.') : null,
-        wa_version_cached_at: cachedWaVersionAt || null
+        wa_version_cached_at: cachedWaVersionAt || null,
+        baileys_package: (() => {
+            try {
+                return require('@whiskeysockets/baileys/package.json').version;
+            } catch (_) {
+                return null;
+            }
+        })()
     });
 });
 
