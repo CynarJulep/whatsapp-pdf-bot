@@ -1,0 +1,14 @@
+# Dependabot — keep Baileys current (WhatsApp protocol changes often)
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    allow:
+      - dependency-name: "@whiskeysockets/baileys"
+      - dependency-name: "@supabase/supabase-js"
+    labels:
+      - dependencies
+      - whatsapp
