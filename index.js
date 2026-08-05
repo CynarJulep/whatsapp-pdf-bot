@@ -982,6 +982,7 @@ app.post('/send-text', requireApiKey, async (req, res) => {
         await new Promise(resolve => setTimeout(resolve, delayMs));
 
         let response;
+        let sendJid = jid;
         if (MOCK_CONNECTION) {
             console.log(`[Webhook] [MOCK] Simulating text to JID: ${jid}...`);
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -992,24 +993,60 @@ app.post('/send-text', requireApiKey, async (req, res) => {
                 const exists = Array.isArray(waCheck) && waCheck[0]?.exists;
                 if (!exists) {
                     console.warn(`[Webhook] Número sin WhatsApp o inválido: ${cleanNumber}`);
+                    await logShipment({
+                        contact_name: contactName || 'Desconocido',
+                        contact_phone: cleanNumber,
+                        solicitud_nro: null,
+                        subtipo: 'licencia_texto',
+                        file_name: null,
+                        usuario_carga: null,
+                        status: 'failed',
+                        message_text: trimmedText,
+                        is_group: false,
+                        group_jid: null
+                    });
                     return res.status(400).json({
                         success: false,
-                        message: `El número ${cleanNumber} no tiene WhatsApp o es inválido.`,
+                        code: 'NUMBER_NOT_ON_WHATSAPP',
+                        message: `El número ${cleanNumber} no tiene WhatsApp o es inválido. Revisá el teléfono del vecino.`,
                         phoneNumber: cleanNumber
                     });
                 }
-                // Preferir el JID canónico que devuelve WA (incluye device si aplica)
                 if (waCheck[0]?.jid) {
-                    console.log(`[Webhook] onWhatsApp OK → ${waCheck[0].jid}`);
+                    sendJid = waCheck[0].jid;
+                    console.log(`[Webhook] onWhatsApp OK → ${sendJid}`);
                 }
             } catch (checkErr) {
                 console.warn('[Webhook] onWhatsApp check failed, continuing with send:', checkErr?.message || checkErr);
             }
-            console.log(`[Webhook] Sending text to JID: ${jid}...`);
-            response = await sock.sendMessage(jid, { text: trimmedText });
+            console.log(`[Webhook] Sending text to JID: ${sendJid}...`);
+            response = await sock.sendMessage(sendJid, { text: trimmedText });
         }
 
-        console.log(`[Webhook] Text successfully sent. Message ID: ${response.key.id}`);
+        const messageId = response?.key?.id;
+        if (!messageId) {
+            console.error('[Webhook] sendMessage returned without message id', response);
+            await logShipment({
+                contact_name: contactName || 'Desconocido',
+                contact_phone: cleanNumber,
+                solicitud_nro: null,
+                subtipo: 'licencia_texto',
+                file_name: null,
+                usuario_carga: null,
+                status: 'failed',
+                message_text: trimmedText,
+                is_group: false,
+                group_jid: null
+            });
+            return res.status(502).json({
+                success: false,
+                code: 'NO_MESSAGE_ID',
+                message: 'WhatsApp no confirmó el envío. Reintentá en unos segundos.',
+                phoneNumber: cleanNumber
+            });
+        }
+
+        console.log(`[Webhook] Text successfully sent. Message ID: ${messageId}`);
 
         await logShipment({
             contact_name: contactName || 'Desconocido',
@@ -1029,11 +1066,14 @@ app.post('/send-text', requireApiKey, async (req, res) => {
             message: MOCK_CONNECTION
                 ? 'Simulación: el texto NO se envió por WhatsApp (MOCK_CONNECTION=true).'
                 : 'Mensaje enviado exitosamente.',
-            messageId: response.key.id,
+            messageId,
+            phoneNumber: cleanNumber,
             mock: MOCK_CONNECTION
         });
     } catch (err) {
         console.error('[Webhook] Error sending text:', err);
+        const errMsg = String(err?.message || err || '');
+        const connectionLost = /connection closed|timed out|not connected/i.test(errMsg);
 
         await logShipment({
             contact_name: contactName || 'Desconocido',
@@ -1048,10 +1088,14 @@ app.post('/send-text', requireApiKey, async (req, res) => {
             group_jid: null
         });
 
-        return res.status(500).json({
+        return res.status(connectionLost ? 503 : 500).json({
             success: false,
-            message: 'Error interno del servidor al enviar el mensaje de texto.',
-            error: err.message
+            code: connectionLost ? 'CONNECTION_LOST' : 'SEND_FAILED',
+            message: connectionLost
+                ? 'Se cortó la conexión de WhatsApp al enviar. Reconectá y reintentá.'
+                : 'No se pudo enviar el mensaje. Reintentá o probá con otro número.',
+            error: errMsg,
+            phoneNumber: cleanNumber
         });
     }
 });
