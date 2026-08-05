@@ -27,6 +27,72 @@ const BOT_API_KEY = process.env.BOT_API_KEY || '';
 const STANDDOWN_ON_CONFLICT = process.env.STANDDOWN_ON_CONFLICT === 'true';
 const RECONNECT_WATCHDOG_MS = Number(process.env.RECONNECT_WATCHDOG_MS || 30000);
 
+/**
+ * Baileys devuelve messageId antes del ACK real de WhatsApp.
+ * El error 463 (cuenta restringida / falta tctoken) llega async en messages.update.
+ * Esperamos un momento para no reportar "enviado" falso.
+ */
+function waitForOutboundMessageResult(activeSock, messageId, timeoutMs = 10000) {
+    return new Promise((resolve) => {
+        if (!activeSock || !messageId) {
+            resolve({ ok: true, reason: 'skipped' });
+            return;
+        }
+
+        let settled = false;
+        const finish = (result) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try {
+                activeSock.ev.off('messages.update', onUpdate);
+            } catch (_) {
+                /* ignore */
+            }
+            resolve(result);
+        };
+
+        const timer = setTimeout(() => {
+            // Sin ERROR en la ventana → asumimos aceptación del servidor
+            finish({ ok: true, reason: 'timeout-no-error' });
+        }, timeoutMs);
+
+        const onUpdate = (updates) => {
+            if (!Array.isArray(updates)) return;
+            for (const u of updates) {
+                if (u?.key?.id !== messageId) continue;
+                const status = u?.update?.status;
+                const stubs = Array.isArray(u?.update?.messageStubParameters)
+                    ? u.update.messageStubParameters.map(String)
+                    : [];
+                const stubText = stubs.join(' ');
+                const isError =
+                    status === 0 ||
+                    status === 'ERROR' ||
+                    stubs.includes('463') ||
+                    /463|restricted|tctoken/i.test(stubText);
+
+                if (isError) {
+                    const code =
+                        stubs.includes('463') || /463/.test(stubText)
+                            ? 'ACCOUNT_RESTRICTED'
+                            : 'DELIVERY_ERROR';
+                    finish({ ok: false, code, stubs, status });
+                    return;
+                }
+
+                // SERVER_ACK / DELIVERY_ACK / READ / PLAYED
+                if (status === 2 || status === 3 || status === 4 || status === 5) {
+                    finish({ ok: true, reason: 'acked', status });
+                    return;
+                }
+            }
+        };
+
+        activeSock.ev.on('messages.update', onUpdate);
+    });
+}
+
 /** If BOT_API_KEY is set, require matching x-api-key header. If unset, allow (local/dev). */
 function requireApiKey(req, res, next) {
     if (!BOT_API_KEY) return next();
@@ -1074,6 +1140,42 @@ app.post('/send-text', requireApiKey, async (req, res) => {
                 message: 'WhatsApp no confirmó el envío. Reintentá en unos segundos.',
                 phoneNumber: cleanNumber
             });
+        }
+
+        if (!MOCK_CONNECTION) {
+            const delivery = await waitForOutboundMessageResult(sock, messageId, 10000);
+            if (!delivery.ok) {
+                console.error(
+                    `[Webhook] Delivery rejected for ${messageId}:`,
+                    delivery.code,
+                    delivery.stubs || ''
+                );
+                await logShipment({
+                    contact_name: contactName || 'Desconocido',
+                    contact_phone: cleanNumber,
+                    solicitud_nro: null,
+                    subtipo: 'licencia_texto',
+                    file_name: null,
+                    usuario_carga: null,
+                    status: 'failed',
+                    message_text: trimmedText,
+                    is_group: false,
+                    group_jid: null
+                });
+                const restricted = delivery.code === 'ACCOUNT_RESTRICTED';
+                return res.status(restricted ? 403 : 502).json({
+                    success: false,
+                    code: delivery.code || 'DELIVERY_ERROR',
+                    message: restricted
+                        ? 'WhatsApp bloqueó la entrega a este número por ahora (restricción temporal de la cuenta). Probá más tarde o usá WhatsApp personal.'
+                        : 'WhatsApp rechazó la entrega del mensaje. Reintentá más tarde.',
+                    phoneNumber: cleanNumber,
+                    messageId
+                });
+            }
+            console.log(
+                `[Webhook] Delivery check OK for ${messageId} (${delivery.reason || 'ok'})`
+            );
         }
 
         console.log(`[Webhook] Text successfully sent. Message ID: ${messageId}`);
