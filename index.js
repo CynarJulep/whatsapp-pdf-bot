@@ -490,8 +490,26 @@ async function connectToWhatsApp() {
 }
 
 // ----------------------------------------------------
-// Keep-Alive Ping (Runs every 6 hours)
+// Keep-Alive
+// - Presence cada ~12 min: mantiene el socket Baileys activo
+// - Self-message cada 6 h: igual que el bot PDF (señal fuerte a WA)
+// - /ping: endpoint liviano para cron externo (Netlify / UptimeRobot)
+//   → evita hibernación de Render (suele dormir ~15 min sin HTTP)
 // ----------------------------------------------------
+const PRESENCE_KEEPALIVE_MS = Number(process.env.PRESENCE_KEEPALIVE_MS || 12 * 60 * 1000);
+const SELF_PING_MS = Number(process.env.SELF_PING_MS || 6 * 60 * 60 * 1000);
+
+setInterval(async () => {
+    try {
+        if (isConnected && sock) {
+            await sock.sendPresenceUpdate('available');
+            console.log('[Keep-Alive] Presence refresh (available)');
+        }
+    } catch (err) {
+        console.error('[Keep-Alive] Error refreshing presence:', err);
+    }
+}, PRESENCE_KEEPALIVE_MS);
+
 setInterval(async () => {
     try {
         if (isConnected && sock && sock.user) {
@@ -509,11 +527,23 @@ setInterval(async () => {
     } catch (err) {
         console.error('[Keep-Alive] Error sending self-ping:', err);
     }
-}, 6 * 60 * 60 * 1000); // 6 hours
+}, SELF_PING_MS);
 
 // ----------------------------------------------------
 // Express Endpoint Webhook
 // ----------------------------------------------------
+
+// Ping liviano para keep-alive externo (cron / UptimeRobot)
+app.get('/ping', (req, res) => {
+    res.status(200).json({
+        ok: true,
+        pong: true,
+        connected: isConnected,
+        connecting: isConnecting,
+        session_id: SESSION_ID,
+        ts: new Date().toISOString(),
+    });
+});
 
 // Health Check Endpoint
 app.get('/status', (req, res) => {
