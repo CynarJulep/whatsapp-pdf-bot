@@ -947,12 +947,31 @@ app.post('/send-text', requireApiKey, async (req, res) => {
         });
     }
 
-    const cleanNumber = String(phoneNumber).replace(/[^0-9]/g, '');
+    let cleanNumber = String(phoneNumber).replace(/[^0-9]/g, '');
     if (cleanNumber.length < 8) {
         return res.status(400).json({
             success: false,
             message: 'El número telefónico provisto es inválido o muy corto.'
         });
+    }
+
+    // Defensa AR: quitar "15" local y forzar 549… si vino mal tipado (ej. 342155…)
+    if (cleanNumber.startsWith('00')) cleanNumber = cleanNumber.slice(2);
+    if (cleanNumber.startsWith('0')) cleanNumber = cleanNumber.slice(1);
+    if (cleanNumber.startsWith('549')) {
+        // ok
+    } else if (cleanNumber.startsWith('54') && cleanNumber[2] !== '9') {
+        cleanNumber = '549' + cleanNumber.slice(2);
+    } else if (!cleanNumber.startsWith('54')) {
+        let national = cleanNumber;
+        if (national.startsWith('9') && national.length >= 11) national = national.slice(1);
+        const m3 = national.match(/^(\d{3})15(\d{6,8})$/);
+        const m4 = national.match(/^(\d{4})15(\d{6,8})$/);
+        const m11 = national.startsWith('1115') ? ['', '11', national.slice(4)] : null;
+        if (m11) national = m11[1] + m11[2];
+        else if (m3) national = m3[1] + m3[2];
+        else if (m4) national = m4[1] + m4[2];
+        cleanNumber = '549' + national;
     }
 
     const jid = `${cleanNumber}@s.whatsapp.net`;
@@ -968,6 +987,24 @@ app.post('/send-text', requireApiKey, async (req, res) => {
             await new Promise(resolve => setTimeout(resolve, 500));
             response = { key: { id: `MOCK_${Date.now()}` } };
         } else {
+            try {
+                const waCheck = await sock.onWhatsApp(cleanNumber);
+                const exists = Array.isArray(waCheck) && waCheck[0]?.exists;
+                if (!exists) {
+                    console.warn(`[Webhook] Número sin WhatsApp o inválido: ${cleanNumber}`);
+                    return res.status(400).json({
+                        success: false,
+                        message: `El número ${cleanNumber} no tiene WhatsApp o es inválido.`,
+                        phoneNumber: cleanNumber
+                    });
+                }
+                // Preferir el JID canónico que devuelve WA (incluye device si aplica)
+                if (waCheck[0]?.jid) {
+                    console.log(`[Webhook] onWhatsApp OK → ${waCheck[0].jid}`);
+                }
+            } catch (checkErr) {
+                console.warn('[Webhook] onWhatsApp check failed, continuing with send:', checkErr?.message || checkErr);
+            }
             console.log(`[Webhook] Sending text to JID: ${jid}...`);
             response = await sock.sendMessage(jid, { text: trimmedText });
         }
