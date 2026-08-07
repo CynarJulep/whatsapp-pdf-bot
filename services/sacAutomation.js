@@ -223,6 +223,19 @@ async function isLoginPage(page) {
   return passCount > 0 && userCount > 0;
 }
 
+async function assertNoHeadlessCloudflareChallenge(page) {
+  if (!SAC_HEADLESS) return;
+  const challengeFrame = page.frames().some((frame) =>
+    /challenges\.cloudflare\.com|turnstile/i.test(frame.url())
+  );
+  if (!challengeFrame) return;
+
+  throw new Error(
+    'Cloudflare Turnstile bloqueó la automatización desde Render. '
+    + 'Ejecutá el worker SAC local con SAC_HEADLESS=false.'
+  );
+}
+
 async function performLogin(page, usuario, contrasena) {
   await page.goto(SAC_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
 
@@ -459,6 +472,7 @@ async function runSacSingleClaimFetch({
 
       console.log(`[SAC] Etapa login (${numeroReclamo}/${anio})`);
       await ensureLoggedIn(page, context, usuario, contrasena, remoteSaveSessionState);
+      await assertNoHeadlessCloudflareChallenge(page);
       console.log(`[SAC] Login/sesión OK (${numeroReclamo}/${anio})`);
 
       const resolveSearchForm = async () => {

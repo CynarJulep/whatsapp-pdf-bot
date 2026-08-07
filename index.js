@@ -117,6 +117,7 @@ const SAC_USER = process.env.SAC_USER || '';
 const SAC_PASSWORD = process.env.SAC_PASSWORD || '';
 const SAC_AUTOMATION_TOKEN = process.env.SAC_AUTOMATION_TOKEN || '';
 const SAC_FEATURE_ENABLED = process.env.SAC_FEATURE_ENABLED === 'true';
+const SAC_PROCESS_JOBS = process.env.SAC_PROCESS_JOBS !== 'false';
 const SAC_MAX_CONCURRENT_JOBS = Math.max(1, Number(process.env.SAC_MAX_CONCURRENT_JOBS || 1));
 const SAC_JOB_STALE_MS = Math.max(60000, Number(process.env.SAC_JOB_STALE_MS || 8 * 60 * 1000));
 const SAC_SIGNED_URL_TTL_SEC = Math.max(60, Number(process.env.SAC_SIGNED_URL_TTL_SEC || 15 * 60));
@@ -888,6 +889,10 @@ async function findRunningSacJob(numeroReclamo, anio) {
 }
 
 function enqueueSacJob(jobId) {
+    if (!SAC_PROCESS_JOBS) {
+        console.log(`[SAC] Job ${jobId} queda en Supabase para el worker externo.`);
+        return;
+    }
     if (sacJobQueue.includes(jobId)) return;
     sacJobQueue.push(jobId);
     void processSacQueue();
@@ -972,7 +977,7 @@ async function processSacJob(jobId) {
  * anything still "queued" so the worker recovers from DB instead of memory-only queue.
  */
 async function recoverSacJobsOnStartup() {
-    if (!SAC_FEATURE_ENABLED) return;
+    if (!SAC_FEATURE_ENABLED || !SAC_PROCESS_JOBS) return;
 
     try {
         const { data: running, error: runningError } = await supabase
@@ -1053,7 +1058,7 @@ app.post('/sac/fetch-single-claim', async (req, res) => {
         });
     }
 
-    if (!SAC_USER || !SAC_PASSWORD) {
+    if (SAC_PROCESS_JOBS && (!SAC_USER || !SAC_PASSWORD)) {
         return res.status(500).json({
             success: false,
             message: 'Faltan SAC_USER y/o SAC_PASSWORD en variables de entorno del backend.'
@@ -1655,8 +1660,10 @@ app.listen(PORT, '0.0.0.0', () => {
     } else if (!SAC_AUTOMATION_TOKEN && process.env.NODE_ENV === 'production') {
         console.warn('[SAC] FEATURE ON sin SAC_AUTOMATION_TOKEN en producción — endpoints rechazan peticiones.');
     } else {
-        console.log('[SAC] Feature habilitada.');
-        void recoverSacJobsOnStartup();
+        console.log(`[SAC] Feature habilitada (${SAC_PROCESS_JOBS ? 'worker cloud' : 'worker externo'}).`);
+        if (SAC_PROCESS_JOBS) {
+            void recoverSacJobsOnStartup();
+        }
     }
     connectToWhatsApp();
 });

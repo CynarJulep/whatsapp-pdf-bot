@@ -101,13 +101,23 @@ Criterio de éxito: varias descargas consecutivas correctas antes de uso general
 
 Si Render/datacenter no puede loguear al SAC (bloqueo IP / headless):
 
-1. Dejar `SAC_FEATURE_ENABLED=true` y la cola `sac_jobs` en Supabase.
-2. En una PC Windows de oficina, correr el mismo `node index.js` **o** un worker que:
-   - lea jobs `queued` de Supabase,
-   - ejecute `runSacSingleClaimFetch`,
-   - suba el PDF y marque `ready`.
-3. No abrir puertos públicos; la PC **sale** hacia Supabase/SAC.
-4. Programar con Task Scheduler para que reinicie si se cae.
+1. En Render configurar `SAC_FEATURE_ENABLED=true` y `SAC_PROCESS_JOBS=false`. Render mantiene la API y deja los jobs `queued` en Supabase.
+2. En la PC Windows de oficina:
+
+```powershell
+npm install
+npm run playwright:install
+$env:SUPABASE_URL="..."
+$env:SUPABASE_SERVICE_ROLE_KEY="..."
+$env:SAC_USER="..."
+$env:SAC_PASSWORD="..."
+$env:SAC_HEADLESS="false"
+npm run sac:worker
+```
+
+3. Si Cloudflare muestra una verificación, resolverla una vez en la ventana de Chromium. La sesión queda persistida en `sac_session_state`.
+4. No abrir puertos públicos; la PC solo sale hacia Supabase y SAC.
+5. Ejecutar `npm run sac:worker` desde Task Scheduler al iniciar sesión para recuperarlo tras un reinicio.
 
 El repo Python `sac-pdf-reclamos` queda como referencia de selectores, no como segundo backend de producción.
 
