@@ -770,7 +770,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   return (
     <form onSubmit={handleSearch} className="overflow-hidden">
       {phase === 'busy' ? (
-        <section className="sac-crt-open sac-scanline relative">
+        <section className="sac-crt-open relative">
           <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-5 py-4 sm:px-7">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background">
@@ -793,22 +793,29 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
             aria-live="polite"
             aria-atomic="true"
             aria-label={`Estado de búsqueda: ${statusText || 'Procesando'}`}
-            className="flex min-h-56 flex-col justify-center gap-7 px-5 py-10 sm:min-h-64 sm:px-12"
+            className="relative flex min-h-56 flex-col justify-center gap-7 overflow-hidden px-5 py-10 sm:min-h-64 sm:px-12"
           >
-            <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
+            {/* Sonar: ondas expandiéndose mientras se rastrea el reclamo */}
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
+              <div className="absolute aspect-square w-[85%] rounded-full border border-primary/25 bg-primary/[0.04] animate-radar-1" />
+              <div className="absolute aspect-square w-[85%] rounded-full border border-primary/25 bg-primary/[0.04] animate-radar-2" />
+              <div className="absolute aspect-square w-[85%] rounded-full border border-primary/25 bg-primary/[0.04] animate-radar-3" />
+            </div>
+
+            <div className="relative z-10 mx-auto flex max-w-md flex-col items-center gap-3 text-center">
               <span className="text-sm font-medium text-foreground">{statusText || 'Procesando…'}</span>
               <p className="text-xs leading-relaxed text-muted-foreground">
                 Estamos consultando SAC y preparando el documento para la vista previa.
               </p>
             </div>
-            <div className="mx-auto w-full max-w-md space-y-2">
+            <div className="relative z-10 mx-auto w-full max-w-md space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>Progreso estimado</span>
                 <span className="font-medium tabular-nums text-foreground">{displayedProgress}%</span>
               </div>
               <Progress value={searchProgress} aria-label="Progreso estimado de búsqueda del reclamo" className="h-2" />
             </div>
-            <ol className="mx-auto flex w-full max-w-md items-start justify-between gap-2" aria-label="Etapas de búsqueda">
+            <ol className="relative z-10 mx-auto flex w-full max-w-md items-start justify-between gap-2" aria-label="Etapas de búsqueda">
               {SAC_PROGRESS_STEPS.map((step, index) => {
                 const complete = index < currentStepIndex;
                 const current = index === currentStepIndex;
@@ -2361,11 +2368,12 @@ function HistoryItemExpandedContent({ item, showUsuario = false }) {
   );
 }
 
-function HistoryItem({ item }) {
+function HistoryItem({ item, showUsuario = false }) {
   const [expanded, setExpanded] = useState(false);
   const elementRef = useRef(null);
-  const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
-  const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+  const created = item.created_at ? new Date(item.created_at) : null;
+  const timeStr = created ? created.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+  const dateStr = created ? created.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '';
   const isSuccess = item.status === 'success';
 
   useEffect(() => {
@@ -2378,104 +2386,70 @@ function HistoryItem({ item }) {
   }, [expanded]);
 
   return (
-    <div 
+    <div
       ref={elementRef}
-      className={`border transition-all duration-200 text-sm font-medium cursor-pointer overflow-hidden ${
+      className={`overflow-hidden rounded-xl border transition-colors duration-200 ${
         isSuccess
-          ? 'border-emerald-500/15 dark:border-emerald-500/10 bg-emerald-500/[0.03] dark:bg-emerald-950/5 hover:bg-emerald-500/[0.06] dark:hover:bg-emerald-950/15'
-          : 'border-rose-500/15 dark:border-rose-500/10 bg-rose-500/[0.03] dark:bg-rose-950/5 hover:bg-rose-500/[0.06] dark:hover:bg-rose-950/15'
+          ? 'border-emerald-500/20 bg-emerald-500/[0.03] hover:bg-emerald-500/[0.07] dark:border-emerald-500/15 dark:bg-emerald-950/10 dark:hover:bg-emerald-950/20'
+          : 'border-rose-500/20 bg-rose-500/[0.03] hover:bg-rose-500/[0.07] dark:border-rose-500/15 dark:bg-rose-950/10 dark:hover:bg-rose-950/20'
       }`}
-      onClick={() => setExpanded(!expanded)}
     >
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
-          <span className="font-bold text-foreground uppercase tracking-wide">
-            {item.subtipo || 'SIN SUBTIPO'}
-          </span>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        className="flex w-full items-start gap-3 p-3.5 text-left sm:gap-3.5 sm:p-4"
+      >
+        <span
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+            isSuccess
+              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+              : 'bg-rose-500/15 text-rose-700 dark:text-rose-400'
+          }`}
+          aria-hidden="true"
+        >
+          {isSuccess ? <Check className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+        </span>
 
-          <span className="text-muted-foreground">|</span>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-start gap-2">
+            <h3 className="min-w-0 flex-1 break-words text-sm font-bold uppercase leading-snug text-foreground">
+              {item.subtipo || 'Sin subtipo'}
+            </h3>
+            <ChevronDown
+              className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-300 ${
+                expanded ? 'rotate-180' : ''
+              }`}
+            />
+          </div>
 
-          <span className="text-muted-foreground">
-            Para: <strong className="text-foreground font-semibold">{item.contact_name}</strong>
-          </span>
+          <div className="flex flex-col gap-1.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="sr-only">Destinatario:</span>
+              <span className="min-w-0 truncate font-medium text-foreground">{item.contact_name}</span>
+            </span>
 
-          <span className="text-muted-foreground">|</span>
-
-          <span className="text-xs text-muted-foreground font-medium">
-            Sol. Nro {item.solicitud_nro || 'S/N'}
-          </span>
+            <span className="flex items-center justify-between gap-3 sm:shrink-0 sm:justify-end">
+              <span className="flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="sr-only">Solicitud número:</span>
+                <span className="tabular-nums">{item.solicitud_nro || 'S/N'}</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="sr-only">Enviado el:</span>
+                <span className="tabular-nums">{dateStr} · {timeStr}</span>
+              </span>
+            </span>
+          </div>
         </div>
+      </button>
 
-        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start md:self-auto flex-shrink-0">
-          <span>{dateStr} {timeStr}</span>
-          <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} />
-        </div>
-      </div>
-
-      <div className={`transition-all duration-300 ease-in-out border-t border-border/40 bg-card overflow-hidden ${
+      <div className={`overflow-hidden border-t border-border/40 bg-card transition-all duration-300 ease-in-out ${
         expanded ? 'max-h-[5000px] opacity-100 p-4' : 'max-h-0 opacity-0 pointer-events-none p-0'
       }`}>
-        <HistoryItemExpandedContent item={item} showUsuario />
-      </div>
-    </div>
-  );
-}
-
-function DashboardHistoryItem({ item }) {
-  const [expanded, setExpanded] = useState(false);
-  const elementRef = useRef(null);
-  const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
-  const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
-  const isSuccess = item.status === 'success';
-
-  useEffect(() => {
-    if (expanded && elementRef.current) {
-      const t = setTimeout(() => {
-        elementRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 100);
-      return () => clearTimeout(t);
-    }
-  }, [expanded]);
-
-  return (
-    <div 
-      ref={elementRef}
-      className={`border transition-all duration-200 text-sm font-medium cursor-pointer overflow-hidden ${
-        isSuccess
-          ? 'border-emerald-500/15 dark:border-emerald-500/10 bg-emerald-500/[0.03] dark:bg-emerald-950/5 hover:bg-emerald-500/[0.06] dark:hover:bg-emerald-950/15'
-          : 'border-rose-500/15 dark:border-rose-500/10 bg-rose-500/[0.03] dark:bg-rose-950/5 hover:bg-rose-500/[0.06] dark:hover:bg-rose-950/15'
-      }`}
-      onClick={() => setExpanded(!expanded)}
-    >
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
-          <span className="font-bold text-foreground uppercase tracking-wide">
-            {item.subtipo || 'SIN SUBTIPO'}
-          </span>
-
-          <span className="text-muted-foreground">|</span>
-
-          <span className="text-muted-foreground">
-            Para: <strong className="text-foreground font-semibold">{item.contact_name}</strong>
-          </span>
-
-          <span className="text-muted-foreground">|</span>
-
-          <span className="text-xs text-muted-foreground font-medium">
-            Sol. Nro {item.solicitud_nro || 'S/N'}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono self-start sm:self-auto flex-shrink-0">
-          <span>{dateStr} {timeStr}</span>
-          <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} />
-        </div>
-      </div>
-
-      <div className={`transition-all duration-300 ease-in-out border-t border-border/40 bg-card overflow-hidden ${
-        expanded ? 'max-h-[5000px] opacity-100 p-4' : 'max-h-0 opacity-0 pointer-events-none p-0'
-      }`}>
-        <HistoryItemExpandedContent item={item} />
+        <HistoryItemExpandedContent item={item} showUsuario={showUsuario} />
       </div>
     </div>
   );
@@ -2517,18 +2491,21 @@ function HistoryTab({ shipments, loading, onReload }) {
   }, [shipments]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between border-b pb-2">
-        <p className="text-xs text-muted-foreground">Registro de todos los PDFs enviados y su estado.</p>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 text-xs text-muted-foreground">
+          Estado de cada envío agrupado por día
+        </p>
         <Button
           variant="outline"
           size="sm"
           onClick={onReload}
           disabled={loading}
-          className="gap-2 h-8"
+          aria-label="Actualizar historial"
+          className="h-9 shrink-0 gap-2 px-2.5 sm:h-8 sm:px-3"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Actualizar
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Actualizar</span>
         </Button>
       </div>
 
@@ -2554,25 +2531,23 @@ function HistoryTab({ shipments, loading, onReload }) {
           </div>
         </div>
       ) : (
-        <ScrollArea className="h-[55vh] pr-2">
-          <div className="space-y-6">
-            {groups.map(group => (
-              <div key={group.label} className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-extrabold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-                    {group.label}
-                  </span>
-                  <Separator className="flex-grow" />
-                </div>
-                <div className="space-y-3">
-                  {group.items.map(item => (
-                    <HistoryItem key={item.id} item={item} />
-                  ))}
-                </div>
+        <div className="space-y-5 pb-2">
+          {groups.map(group => (
+            <div key={group.label} className="space-y-2.5">
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
+                  {group.label}
+                </span>
+                <Separator className="flex-grow" />
               </div>
-            ))}
-          </div>
-        </ScrollArea>
+              <div className="space-y-2">
+                {group.items.map(item => (
+                  <HistoryItem key={item.id} item={item} showUsuario />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -2609,6 +2584,10 @@ export default function App() {
   const [reconnecting, setReconnecting] = useState(false);
 
    const [historyOpen, setHistoryOpen] = useState(false);
+  // En móvil arranca plegado: si no, la lista alarga la pantalla inicial y el scroll se vuelve incómodo.
+  const [miniHistoryOpen, setMiniHistoryOpen] = useState(
+    () => typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches
+  );
   const [historySearch, setHistorySearch] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -3208,26 +3187,38 @@ export default function App() {
           {/* Mini Historial (solo en pantalla inicial, no compite con el PDF) */}
           {step === 0 && (
           <div className="mt-12 w-full max-w-4xl mx-auto space-y-4">
-            <div className="flex items-center gap-2 border-b pb-2">
+            <button
+              type="button"
+              onClick={() => setMiniHistoryOpen((open) => !open)}
+              aria-expanded={miniHistoryOpen}
+              className="flex w-full items-center gap-2 border-b pb-2 text-left"
+            >
               <History className="w-5 h-5 text-primary" />
               <h2 className="text-base font-bold text-foreground">Últimas Derivaciones</h2>
-              <span className="text-xs text-muted-foreground ml-auto">Últimos 5 envíos</span>
-            </div>
+              <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="hidden sm:inline">Últimos 5 envíos</span>
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform duration-300 ${miniHistoryOpen ? 'rotate-180' : ''}`}
+                />
+              </span>
+            </button>
 
-            {loadingShipments && shipments.length === 0 ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
-              </div>
-            ) : shipments.length === 0 ? (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                No hay derivaciones registradas recientemente.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-2">
-                {shipments.slice(0, 5).map((item) => (
-                  <DashboardHistoryItem key={item.id} item={item} />
-                ))}
-              </div>
+            {miniHistoryOpen && (
+              loadingShipments && shipments.length === 0 ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+                </div>
+              ) : shipments.length === 0 ? (
+                <div className="text-center py-6 text-sm text-muted-foreground">
+                  No hay derivaciones registradas recientemente.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {shipments.slice(0, 5).map((item) => (
+                    <HistoryItem key={item.id} item={item} />
+                  ))}
+                </div>
+              )
             )}
           </div>
           )}
@@ -3341,32 +3332,37 @@ export default function App() {
 
         {/* ── Dialog de Historial Dedicado con Buscador ── */}
         <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                <History className="w-5 h-5 text-primary" />
+          <DialogContent
+            // En móvil Radix enfoca el primer input y abre el teclado; solo queremos foco si el usuario toca buscar.
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
+          >
+            <DialogHeader className="shrink-0 space-y-1 border-b border-border/60 px-4 py-4 pr-14 sm:px-6">
+              <DialogTitle className="flex items-center gap-2 text-lg font-bold sm:text-xl">
+                <History className="h-5 w-5 text-primary" />
                 Historial de Derivaciones
               </DialogTitle>
-              <DialogDescription>
-                Registro completo de todos los PDFs enviados ({filteredShipments.length} de {shipments.length}).
+              <DialogDescription className="text-xs sm:text-sm">
+                {filteredShipments.length} de {shipments.length} envíos
               </DialogDescription>
             </DialogHeader>
-            <div className="mt-2 space-y-4">
-              {/* Buscador Dedicado */}
+            <div className="shrink-0 border-b border-border/40 px-4 py-3 sm:px-6">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Buscar por solicitud, subtipo, destinatario o archivo..." 
-                  value={historySearch} 
-                  onChange={(e) => setHistorySearch(e.target.value)} 
-                  className="pl-10 h-10 text-sm"
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar solicitud, subtipo o destinatario…"
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  enterKeyHint="search"
+                  className="h-11 pl-10 text-base sm:h-10 sm:text-sm"
                 />
               </div>
-
-              <HistoryTab 
-                shipments={filteredShipments} 
-                loading={loadingShipments} 
-                onReload={loadShipments} 
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6 sm:py-4">
+              <HistoryTab
+                shipments={filteredShipments}
+                loading={loadingShipments}
+                onReload={loadShipments}
               />
             </div>
           </DialogContent>

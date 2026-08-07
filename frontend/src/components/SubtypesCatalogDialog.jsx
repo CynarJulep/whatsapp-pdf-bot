@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, Plus, RefreshCw, Edit, Trash2, Save, X, Loader2, 
-  LayoutGrid, Table2, User, Zap, AlertCircle, HelpCircle, MapPin, Users
+  LayoutGrid, Table2, User, Zap, AlertCircle, HelpCircle, MapPin, Users,
+  Ban, ListFilter, Tag
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -486,116 +487,161 @@ export default function SubtypesCatalogDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-7xl h-[88vh] flex flex-col p-0 gap-0 overflow-hidden bg-background [&>button[class*='absolute']]:text-white/80 [&>button[class*='absolute']]:hover:text-white border-border/60 shadow-2xl">
-          <DialogHeader className="msf-header text-white p-5 sm:px-8 flex-shrink-0">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5 sm:gap-8">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
+        <DialogContent
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          className="flex h-[min(88vh,calc(100dvh-1rem))] max-h-[calc(100dvh-1rem)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden border-border/60 bg-background p-0 shadow-2xl sm:max-w-7xl [&>button[class*='absolute']]:text-white/80 [&>button[class*='absolute']]:hover:text-white"
+        >
+          <DialogHeader className="msf-header shrink-0 p-3 pr-14 text-white sm:p-5 sm:px-8 sm:pr-16">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3 sm:gap-6">
                 <img
                   src="/marca_muni/SF_Horizontal_Blanco.png"
                   alt="Municipalidad de Santa Fe"
-                  className="h-11 w-auto max-w-[min(100%,300px)] object-contain object-left drop-shadow-sm sm:h-12"
+                  className="hidden h-10 w-auto object-contain drop-shadow-sm sm:block sm:h-12"
                 />
-                <div className="hidden h-14 w-[1px] bg-[oklch(1_0_0_/22%)] sm:block" />
-                <div className="flex flex-col gap-0.5">
-                  <DialogTitle className="font-heading text-2xl sm:text-3xl leading-[1.08] font-bold tracking-tight text-[var(--msf-header-fg)]">
+                <div className="hidden h-12 w-px bg-[oklch(1_0_0_/22%)] sm:block" />
+                <div className="min-w-0">
+                  <DialogTitle className="font-heading text-lg font-bold leading-tight tracking-tight text-[var(--msf-header-fg)] sm:text-3xl">
                     Buscador PAI
                   </DialogTitle>
-                  <p className="max-w-xl text-sm sm:text-base font-medium text-[var(--msf-header-muted)]">
+                  <p className="truncate text-xs font-medium text-[var(--msf-header-muted)] sm:text-base">
                     Derivaciones y orientación
                   </p>
                 </div>
               </div>
-              <Button 
-                onClick={() => setAddOpen(true)} 
-                size="sm" 
-                className="gap-1.5 text-xs font-bold h-10 px-4 bg-white text-[var(--msf-blue)] hover:bg-white/90 shadow-sm border-0 self-start sm:self-auto shrink-0 transition-all active:scale-95 duration-150 cursor-pointer"
+              <Button
+                onClick={() => setAddOpen(true)}
+                size="sm"
+                aria-label="Agregar subtipo"
+                className="h-10 shrink-0 gap-1.5 border-0 bg-white px-3 text-xs font-bold text-[var(--msf-blue)] shadow-sm transition-all hover:bg-white/90 active:scale-95 sm:px-4"
               >
-                <Plus className="w-4 h-4" /> Agregar Subtipo
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Agregar Subtipo</span>
               </Button>
             </div>
           </DialogHeader>
-          <div className="p-6 flex-1 flex flex-col min-h-0 gap-4">
 
-          {/* Filters & View switcher */}
-          <div className="flex flex-wrap gap-3 items-center pb-2 border-b border-border/40">
-            <div className="relative flex-1 min-w-[200px] sm:max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input 
-                placeholder="Buscar por subtipo, tipo o categoría…" 
-                value={search} 
-                onChange={(e) => setSearch(e.target.value)} 
-                className="pl-10 h-10 text-sm"
-              />
+          <div className="flex min-h-0 flex-1 flex-col">
+          {/* Barra compacta: búsqueda + chips de filtro (en móvil deja espacio a las tarjetas) */}
+          <div className="shrink-0 space-y-2.5 border-b border-border/40 px-3 py-3 sm:px-6 sm:py-4">
+            <div className="flex items-center gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar subtipo, tipo o categoría…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  enterKeyHint="search"
+                  className="h-11 pl-10 text-base sm:h-10 sm:text-sm"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={onReload}
+                disabled={loading}
+                aria-label="Actualizar catálogo"
+                className="h-11 w-11 shrink-0 sm:h-10 sm:w-10"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+              <div className="flex shrink-0 items-center rounded-xl border bg-muted/20 p-0.5">
+                <Button
+                  variant={viewMode === 'cards' ? 'secondary' : 'ghost'}
+                  size="icon"
+                  onClick={() => setViewMode('cards')}
+                  aria-label="Vista de tarjetas"
+                  className="h-9 w-9 sm:h-8 sm:w-auto sm:px-3 sm:gap-1.5"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  <span className="hidden text-xs font-semibold sm:inline">Tarjetas</span>
+                </Button>
+                <Button
+                  variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+                  size="icon"
+                  onClick={() => setViewMode('table')}
+                  aria-label="Vista de tabla"
+                  className="h-9 w-9 sm:h-8 sm:w-auto sm:px-3 sm:gap-1.5"
+                >
+                  <Table2 className="h-3.5 w-3.5" />
+                  <span className="hidden text-xs font-semibold sm:inline">Tabla</span>
+                </Button>
+              </div>
             </div>
 
-            <Select value={tipoFilter} onValueChange={setTipoFilter}>
-              <SelectTrigger className="w-full min-w-[9rem] sm:w-[150px] h-10 text-sm">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los tipos</SelectItem>
-                {uniqueTipos.map(t => (
-                  <SelectItem key={t} value={t}>{t}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={categoriaFilter} onValueChange={setCategoriaFilter}>
-              <SelectTrigger className="w-full min-w-[9rem] sm:w-[220px] h-10 text-sm">
-                <SelectValue placeholder="Categoría" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                <SelectItem value="all">Todas las categorías</SelectItem>
-                {uniqueCategorias.map(c => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={derivacionFilter} onValueChange={setDerivacionFilter}>
-              <SelectTrigger className="w-full min-w-[9rem] sm:w-[180px] h-10 text-sm">
-                <SelectValue placeholder="Derivación" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">¿Se deriva? (todas)</SelectItem>
-                <SelectItem value="derivar">Se deriva</SelectItem>
-                <SelectItem value="no">No derivar</SelectItem>
-              </SelectContent>
-            </Select>
-            
-            <div className="flex items-center border rounded-xl p-0.5 bg-muted/20 ml-auto">
-              <Button 
-                variant={viewMode === 'cards' ? 'secondary' : 'ghost'} 
-                size="sm" 
-                onClick={() => setViewMode('cards')} 
-                className="h-8 px-3 gap-1.5 text-xs font-semibold"
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <Button
+                type="button"
+                size="sm"
+                variant={derivacionFilter === 'all' ? 'secondary' : 'outline'}
+                onClick={() => setDerivacionFilter('all')}
+                aria-pressed={derivacionFilter === 'all'}
+                aria-label="Todas las derivaciones"
+                title="Todas"
+                className="h-9 shrink-0 gap-1.5 px-2.5"
               >
-                <LayoutGrid className="w-3.5 h-3.5" /> Tarjetas
+                <ListFilter className="h-3.5 w-3.5" />
+                <span className="text-xs font-medium">Todas</span>
               </Button>
-              <Button 
-                variant={viewMode === 'table' ? 'secondary' : 'ghost'} 
-                size="sm" 
-                onClick={() => setViewMode('table')} 
-                className="h-8 px-3 gap-1.5 text-xs font-semibold"
+              <Button
+                type="button"
+                size="sm"
+                variant={derivacionFilter === 'derivar' ? 'secondary' : 'outline'}
+                onClick={() => setDerivacionFilter('derivar')}
+                aria-pressed={derivacionFilter === 'derivar'}
+                aria-label="Solo se deriva"
+                title="Se deriva"
+                className="h-9 shrink-0 gap-1.5 px-2.5"
               >
-                <Table2 className="w-3.5 h-3.5" /> Tabla
+                <Zap className="h-3.5 w-3.5" />
+                <span className="text-xs font-medium">Deriva</span>
               </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={derivacionFilter === 'no' ? 'secondary' : 'outline'}
+                onClick={() => setDerivacionFilter('no')}
+                aria-pressed={derivacionFilter === 'no'}
+                aria-label="Solo no derivar"
+                title="No derivar"
+                className="h-9 shrink-0 gap-1.5 px-2.5"
+              >
+                <Ban className="h-3.5 w-3.5" />
+                <span className="text-xs font-medium">No</span>
+              </Button>
+
+              <span className="mx-0.5 h-6 w-px shrink-0 bg-border" aria-hidden="true" />
+
+              <Select value={tipoFilter} onValueChange={setTipoFilter}>
+                <SelectTrigger className="h-9 w-auto min-w-0 shrink-0 gap-1.5 px-2.5 text-xs" aria-label="Filtrar por tipo">
+                  <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los tipos</SelectItem>
+                  {uniqueTipos.map((t) => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={categoriaFilter} onValueChange={setCategoriaFilter}>
+                <SelectTrigger className="h-9 w-auto max-w-[10.5rem] min-w-0 shrink-0 gap-1.5 px-2.5 text-xs sm:max-w-[14rem]" aria-label="Filtrar por categoría">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <SelectValue placeholder="Categoría" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">Todas las categorías</SelectItem>
+                  {uniqueCategorias.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={onReload} 
-              disabled={loading}
-
-              className="h-10 px-3 gap-1.5 text-sm"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            </Button>
           </div>
 
           {/* Catalog List */}
-          <div className="flex-1 flex flex-col min-h-0 mt-1">
+          <div className="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-6 sm:py-4">
             {loading && catalog.length === 0 ? (
               <div className="space-y-3 py-6">
                 {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
