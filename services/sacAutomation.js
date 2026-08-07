@@ -349,19 +349,42 @@ async function openClaimDetail(scopeOrScopes, numeroReclamo, anio) {
 }
 
 async function triggerPdfDownload({ page, scope, context, numeroReclamo, timeoutMs }) {
-  const downloadWaitMs = Math.min(timeoutMs, 12000);
+  const downloadWaitMs = Math.min(timeoutMs, 8000);
+  const detailUrl = page.url();
+
+  // SAC exposes the same detail URL with accion=imprimir. Fetching it through
+  // the authenticated browser context avoids two UI waits when it returns PDF.
+  if (/\/solicitud\/ver\.do/i.test(detailUrl)) {
+    try {
+      const printUrl = new URL(detailUrl);
+      printUrl.searchParams.set('accion', 'imprimir');
+      printUrl.searchParams.set('incluirDatosComplementarios', 'false');
+      const response = await context.request.get(printUrl.toString(), {
+        timeout: Math.min(timeoutMs, 15000)
+      });
+      if (response.ok()) {
+        const contentType = response.headers()['content-type'] || '';
+        const buffer = Buffer.from(await response.body());
+        const isPdf = contentType.toLowerCase().includes('pdf')
+          || buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+        if (isPdf && buffer.length > 1000) {
+          return { pdfBuffer: buffer, suggestedFileName: `${numeroReclamo}.pdf` };
+        }
+      }
+    } catch (_) {
+      // Continue with browser-driven download fallbacks.
+    }
+  }
+
   const printButton = scope.locator('input[type="button"][value="Imprimir"], button:has-text("Imprimir")').first();
   if (await printButton.count()) {
     try {
-      const popupPromise = page.waitForEvent('popup', { timeout: 12000 }).catch(() => null);
+      const popupPromise = page.waitForEvent('popup', { timeout: downloadWaitMs }).catch(() => null);
       const downloadPromise = page.waitForEvent('download', { timeout: downloadWaitMs }).catch(() => null);
       await printButton.click({ timeout: 5000 });
       const download = await downloadPromise;
       if (!download) throw new Error('El botón Imprimir no disparó una descarga directa');
-      const popup = await popupPromise;
-      if (popup) {
-        await popup.close().catch(() => null);
-      }
+      void popupPromise.then((popup) => popup?.close().catch(() => null));
       const diskPath = await download.path();
       if (diskPath) {
         const buffer = await fs.readFile(diskPath);
@@ -380,7 +403,6 @@ async function triggerPdfDownload({ page, scope, context, numeroReclamo, timeout
     'a:has-text("PDF")',
     'a[href*="pdf"]',
     'a[href*="imprimir"]',
-    'button:has-text("Imprimir")',
     'a:has-text("Imprimir")'
   ];
 
@@ -637,7 +659,7 @@ async function runSacSingleClaimFetch({
         console.warn('[SAC] No se detectó campo de año. Se continúa con valor por defecto del formulario.');
       }
 
-      const replacementPagePromise = context.waitForEvent('page', { timeout: 8000 }).catch(() => null);
+      const replacementPagePromise = context.waitForEvent('page', { timeout: 1500 }).catch(() => null);
       await buscarButton.click();
       const replacementPage = await replacementPagePromise;
       if (replacementPage) {

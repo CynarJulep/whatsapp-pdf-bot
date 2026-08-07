@@ -7,7 +7,7 @@ import {
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
   Check, Plus, Loader2, Zap, MapPin, ArrowRight,
   History, Clock, ChevronDown, ChevronUp, HelpCircle, BookOpen,
-  Copy, FileSearch
+  Copy, Download, FileSearch
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -51,6 +51,7 @@ function PdfCanvasViewer({ file }) {
   useEffect(() => {
     if (!file) return;
     let cancelled = false;
+    let pdfDocument = null;
     const container = containerRef.current;
 
     async function render() {
@@ -61,7 +62,8 @@ function PdfCanvasViewer({ file }) {
       try {
         const buffer = await file.arrayBuffer();
         if (cancelled) return;
-        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        const pdf = await pdfjsLib.getDocument({ data: buffer, useSystemFonts: true }).promise;
+        pdfDocument = pdf;
         if (cancelled) return;
         // Fit pages to the visible column width so intrinsic canvas size
         // never expands the whole app layout (esp. inside Google Sites iframe).
@@ -101,7 +103,10 @@ function PdfCanvasViewer({ file }) {
     }
 
     render();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      pdfDocument?.destroy().catch(() => null);
+    };
   }, [file]);
 
   return (
@@ -309,9 +314,10 @@ function extractPageText(content) {
 
 // ── Extract PDF text and detect "Area destino" ─────────────────────────────────
 async function extractPdfInfo(file) {
+  let pdf = null;
   try {
     const buffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    pdf = await pdfjsLib.getDocument({ data: buffer, useSystemFonts: true }).promise;
     let fullText = '';
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
@@ -349,9 +355,19 @@ async function extractPdfInfo(file) {
 
     const usuarioCarga = extractUsuarioCarga(fullText);
 
-    return { areaDestino, solicitudNro, tipo, subtipo, ubicacion, descripcion, fecha, usuarioCarga, fullText };
-  } catch {
-    return { areaDestino: null, solicitudNro: null, tipo: null, subtipo: null, ubicacion: null, descripcion: null, fecha: null, usuarioCarga: null, fullText: '' };
+    return {
+      areaDestino, solicitudNro, tipo, subtipo, ubicacion, descripcion, fecha, usuarioCarga, fullText,
+      extractionError: fullText.trim() ? null : 'El PDF no contiene texto extraíble.'
+    };
+  } catch (error) {
+    console.error('[PDF] No se pudo extraer la información del documento:', error);
+    return {
+      areaDestino: null, solicitudNro: null, tipo: null, subtipo: null, ubicacion: null,
+      descripcion: null, fecha: null, usuarioCarga: null, fullText: '',
+      extractionError: error?.message || 'No se pudo leer el contenido del PDF.'
+    };
+  } finally {
+    await pdf?.destroy().catch(() => null);
   }
 }
 
@@ -524,8 +540,9 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
 
 const SAC_STATUS_LABELS = {
   idle: '',
-  queued: 'En cola…',
-  running: 'Buscando en SAC y descargando PDF…',
+  queued: 'Preparando la búsqueda…',
+  running: 'Consultando el reclamo en SAC…',
+  downloading: 'Descargando el PDF…',
   ready: 'PDF listo',
   failed: 'No se pudo obtener el reclamo'
 };
@@ -536,6 +553,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   const [anio, setAnio] = useState(String(currentYear));
   const [jobStatus, setJobStatus] = useState('idle');
   const [statusText, setStatusText] = useState('');
+  const [searchProgress, setSearchProgress] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const abortRef = useRef(null);
@@ -572,6 +590,12 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       const job = await pollJob(jobId, signal);
       setJobStatus(job.status || 'running');
       setStatusText(SAC_STATUS_LABELS[job.status] || 'Procesando…');
+      setSearchProgress((current) => {
+        if (job.status === 'queued') return Math.min(Math.max(current, 18) + 4, 36);
+        if (job.status === 'running') return Math.min(Math.max(current, 44) + 7, 82);
+        if (job.status === 'ready') return Math.max(current, 88);
+        return current;
+      });
 
       if (job.status === 'ready') {
         return job;
@@ -581,7 +605,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       }
 
       await new Promise((resolve, reject) => {
-        pollRef.current = setTimeout(resolve, 2500);
+        pollRef.current = setTimeout(resolve, 1000);
         signal.addEventListener('abort', () => {
           clearTimeout(pollRef.current);
           reject(new DOMException('Aborted', 'AbortError'));
@@ -621,6 +645,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
     setError('');
     setJobStatus('queued');
     setStatusText(SAC_STATUS_LABELS.queued);
+    setSearchProgress(10);
 
     try {
       const createRes = await fetch(`${backendUrl}/sac/fetch-single-claim`, {
@@ -639,6 +664,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       }
 
       setJobStatus(createData.job.status || 'queued');
+      setSearchProgress(18);
       const readyJob = await waitForJob(createData.job.id, controller.signal);
 
       const downloadUrl = readyJob.signedUrl || readyJob.publicUrl;
@@ -646,7 +672,9 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
         throw new Error('El PDF está listo pero no hay URL de descarga. Reintentá.');
       }
 
-      setStatusText('Descargando PDF…');
+      setJobStatus('downloading');
+      setStatusText(SAC_STATUS_LABELS.downloading);
+      setSearchProgress(92);
       const pdfRes = await fetch(downloadUrl, { signal: controller.signal });
       if (!pdfRes.ok) throw new Error('No se pudo descargar el PDF desde Storage.');
       const blob = await pdfRes.blob();
@@ -655,6 +683,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
 
       setJobStatus('ready');
       setStatusText(SAC_STATUS_LABELS.ready);
+      setSearchProgress(100);
       onReady?.(file, {
         storagePath: readyJob.storagePath || null,
         jobId: readyJob.id,
@@ -668,6 +697,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       setError(message);
       setJobStatus('failed');
       setStatusText(SAC_STATUS_LABELS.failed);
+      setSearchProgress(100);
       showToast?.(message, 'error');
     } finally {
       setBusy(false);
@@ -720,7 +750,13 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       {busy && (
         <Alert>
           <Spinner />
-          <AlertDescription>{statusText || 'Procesando…'}</AlertDescription>
+          <AlertDescription className="flex flex-col gap-2">
+            <span className="flex items-center justify-between gap-3">
+              <span>{statusText || 'Procesando…'}</span>
+              <span className="tabular-nums">{searchProgress}%</span>
+            </span>
+            <Progress value={searchProgress} aria-label="Progreso de búsqueda del reclamo" />
+          </AlertDescription>
         </Alert>
       )}
 
@@ -744,7 +780,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
 }
 
 // ── Step 1: Preview + Contact Picker (split layout) ────────────────────────────
-function PreviewAndPick({ file, contacts, groups = [], shipments = [], subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
+function PreviewAndPick({ file, sacSource = null, contacts, groups = [], shipments = [], subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
   const [extracting, setExtracting] = useState(true);
@@ -764,57 +800,73 @@ function PreviewAndPick({ file, contacts, groups = [], shipments = [], subtypesC
     ];
   }, [activeContacts, activeGroups]);
 
-  // Extract PDF info and auto-select matching contact / group
+  // Extract once per file. Keeping contact/catalog updates out of this effect
+  // avoids parsing the same PDF several times in parallel on memory-limited phones.
   useEffect(() => {
+    let cancelled = false;
     setExtracting(true);
     extractPdfInfo(file).then((info) => {
-      setPdfInfo(info);
+      if (cancelled) return;
+      const resolvedInfo = sacSource
+        ? {
+            ...info,
+            solicitudNro: info.solicitudNro
+              || [sacSource.numeroReclamo, sacSource.anio].filter(Boolean).join('-')
+              || null,
+            fromSac: true
+          }
+        : info;
+      setPdfInfo(resolvedInfo);
       setExtracting(false);
 
-      const isNonSac = !info.solicitudNro && !info.subtipo && !info.ubicacion && !info.areaDestino;
+      const isNonSac = !sacSource && !resolvedInfo.solicitudNro && !resolvedInfo.subtipo
+        && !resolvedInfo.ubicacion && !resolvedInfo.areaDestino;
 
       let defaultMsg = '';
       if (isNonSac) {
         defaultMsg = "Atención Ciudadana le hace llegar el documento adjunto.";
       } else {
         defaultMsg = `Atención Ciudadana le hace llegar el siguiente reclamo:
-*Solicitud Nro:* ${info.solicitudNro || 'No especificado'}
+*Solicitud Nro:* ${resolvedInfo.solicitudNro || 'No especificado'}
 
-*Subtipo:* ${info.subtipo || 'No especificado'}
+*Subtipo:* ${resolvedInfo.subtipo || 'No especificado'}
 
-*Ubicación:* ${info.ubicacion || 'No especificada'}
+*Ubicación:* ${resolvedInfo.ubicacion || 'No especificada'}
 
-*Descripción:* ${info.descripcion || 'No especificado'}
+*Descripción:* ${resolvedInfo.descripcion || 'No especificado'}
 
-Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
+Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}`;
       }
       setMessageText(defaultMsg);
+    });
+    return () => { cancelled = true; };
+  }, [file, sacSource]);
 
-      // Preselect ALL contacts/groups assigned to this subtype (up to MAX_RECIPIENTS)
-      const newSelected = new Set();
-      if (info.subtipo && subtypesCatalog && subtypesCatalog.length > 0) {
-        const cleanSub = info.subtipo.trim().toLowerCase();
-        const matchedItem = subtypesCatalog.find(
-          item => item.subtipo.trim().toLowerCase() === cleanSub
-        );
-        if (matchedItem && matchedItem.derivar) {
-          for (const c of activeContacts) {
-            if (newSelected.size >= MAX_RECIPIENTS) break;
-            if (c.subtypes?.some(s => s.trim().toLowerCase() === cleanSub)) {
-              newSelected.add(`c_${c.id}`);
-            }
+  // Preselect all recipients assigned to the extracted subtype.
+  useEffect(() => {
+    const newSelected = new Set();
+    if (pdfInfo.subtipo && subtypesCatalog && subtypesCatalog.length > 0) {
+      const cleanSub = pdfInfo.subtipo.trim().toLowerCase();
+      const matchedItem = subtypesCatalog.find(
+        item => item.subtipo.trim().toLowerCase() === cleanSub
+      );
+      if (matchedItem?.derivar) {
+        for (const c of contacts.filter((contact) => contact.is_active)) {
+          if (newSelected.size >= MAX_RECIPIENTS) break;
+          if (c.subtypes?.some((subtype) => subtype.trim().toLowerCase() === cleanSub)) {
+            newSelected.add(`c_${c.id}`);
           }
-          for (const g of activeGroups) {
-            if (newSelected.size >= MAX_RECIPIENTS) break;
-            if (g.subtypes?.some(s => s.trim().toLowerCase() === cleanSub)) {
-              newSelected.add(`g_${g.id}`);
-            }
+        }
+        for (const g of groups.filter((group) => group.is_active)) {
+          if (newSelected.size >= MAX_RECIPIENTS) break;
+          if (g.subtypes?.some((subtype) => subtype.trim().toLowerCase() === cleanSub)) {
+            newSelected.add(`g_${g.id}`);
           }
         }
       }
-      setSelected(newSelected);
-    });
-  }, [file, subtypesCatalog, contacts, groups]);
+    }
+    setSelected(newSelected);
+  }, [pdfInfo.subtipo, subtypesCatalog, contacts, groups]);
 
   // Al terminar de analizar el PDF: ir al TOPE ABSOLUTO (header), nunca al banner.
   useEffect(() => {
@@ -874,7 +926,8 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     if (extracting) {
       if (onDerivationChange) onDerivationChange(null);
     } else {
-      const isNonSac = !pdfInfo.solicitudNro && !pdfInfo.subtipo && !pdfInfo.ubicacion && !pdfInfo.areaDestino;
+      const isNonSac = !sacSource && !pdfInfo.solicitudNro && !pdfInfo.subtipo
+        && !pdfInfo.ubicacion && !pdfInfo.areaDestino;
       if (isNonSac) {
         if (onDerivationChange) onDerivationChange('no-sac');
       } else if (matchedCatalogItem) {
@@ -883,7 +936,7 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
         if (onDerivationChange) onDerivationChange('no-catalogado');
       }
     }
-  }, [matchedCatalogItem, pdfInfo, extracting, onDerivationChange]);
+  }, [matchedCatalogItem, pdfInfo, extracting, onDerivationChange, sacSource]);
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim();
@@ -963,6 +1016,18 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
     });
   };
 
+  const handleDownloadPdf = () => {
+    const url = URL.createObjectURL(file);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = file.name || 'reclamo.pdf';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast?.('PDF descargado', 'success');
+  };
+
   const selectedRecipients = mergedRecipients.filter(r => selected.has(r.recipientKey));
 
   return (
@@ -976,7 +1041,8 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
           </div>
         ) : (
           (() => {
-            const isNonSac = !pdfInfo.solicitudNro && !pdfInfo.subtipo && !pdfInfo.ubicacion && !pdfInfo.areaDestino;
+            const isNonSac = !sacSource && !pdfInfo.solicitudNro && !pdfInfo.subtipo
+              && !pdfInfo.ubicacion && !pdfInfo.areaDestino;
             if (isNonSac) {
               return (
                 <div className="py-5 px-6 sm:px-8 rounded-2xl text-center space-y-2 border border-amber-500/20 text-amber-950 dark:text-amber-300 bg-amber-500/[0.06] dark:bg-amber-950/20 msf-title-banner animate-fade-slide-up">
@@ -986,6 +1052,20 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                   </h2>
                   <p className="text-sm sm:text-base font-semibold text-muted-foreground/90 max-w-2xl mx-auto leading-relaxed">
                     Este documento no parece contener los campos habituales de un reclamo del SAC municipal. Se aplicará la plantilla general de envío.
+                  </p>
+                </div>
+              );
+            }
+            if (sacSource && !pdfInfo.subtipo) {
+              return (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-5 py-5 text-center text-amber-950 dark:bg-amber-950/20 dark:text-amber-200 sm:px-8">
+                  <h2 className="flex items-center justify-center gap-2 text-xl font-bold tracking-tight sm:text-2xl">
+                    <AlertCircle className="h-6 w-6 shrink-0 text-amber-600 dark:text-amber-400" />
+                    PDF DEL SAC CARGADO
+                  </h2>
+                  <p className="mx-auto mt-2 max-w-2xl text-sm font-medium leading-relaxed text-muted-foreground sm:text-base">
+                    El archivo proviene del SAC, pero no pudimos leer automáticamente el subtipo.
+                    Verificá el documento antes de derivarlo.
                   </p>
                 </div>
               );
@@ -1155,6 +1235,21 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
                 <p className="text-xs font-semibold text-foreground truncate">{file.name}</p>
                 <p className="text-[10px] text-muted-foreground">{formatBytes(file.size)}</p>
               </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleDownloadPdf}
+                    aria-label="Descargar PDF"
+                  >
+                    <Download data-icon="inline-start" />
+                    <span className="hidden sm:inline">Descargar</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Descargar PDF</p></TooltipContent>
+              </Tooltip>
               <button
                 type="button"
                 onClick={onBack}
@@ -1165,7 +1260,14 @@ Este reclamo fue cargado en el SAC el ${info.fecha || 'No especificada'}`;
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-              <PdfCanvasViewer file={file} />
+              {extracting ? (
+                <div className="flex min-h-52 items-center justify-center gap-3 px-4 text-sm font-medium text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Preparando vista previa…
+                </div>
+              ) : (
+                <PdfCanvasViewer file={file} />
+              )}
             </div>
           </div>
         </section>
@@ -2802,6 +2904,7 @@ export default function App() {
                 <Button
                   type="button"
                   size="icon"
+                  variant="ghost"
                   onClick={() => setSacSearchOpen(true)}
                   disabled={!botStatus.sacEnabled}
                   aria-label="Buscar reclamo en SAC"
@@ -2927,7 +3030,8 @@ export default function App() {
           {step === 1 && file && (
             <div className="animate-slide-forward w-full">
               <PreviewAndPick
-                file={file} 
+                file={file}
+                sacSource={sacSource}
                 contacts={loadingContacts ? [] : contacts}
                 groups={loadingGroups ? [] : groups}
                 shipments={shipments}
@@ -3011,9 +3115,9 @@ export default function App() {
 
         {/* ── Buscador SAC dedicado ── */}
         <Dialog open={sacSearchOpen} onOpenChange={setSacSearchOpen}>
-          <DialogContent className="sm:max-w-xl">
+          <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
             <DialogHeader>
-              <div className="flex items-center justify-between gap-3 pr-8">
+              <div className="flex flex-col items-start gap-2 pr-8 sm:flex-row sm:items-center sm:justify-between">
                 <DialogTitle className="flex items-center gap-2">
                   <FileSearch />
                   Buscar reclamo en SAC
@@ -3032,7 +3136,12 @@ export default function App() {
               connected={!!botStatus.connected}
               showToast={showToast}
               onReady={(f, meta) => {
-                setSacSource(meta?.storagePath ? { storagePath: meta.storagePath, jobId: meta.jobId } : null);
+                setSacSource(meta ? {
+                  storagePath: meta.storagePath || null,
+                  jobId: meta.jobId || null,
+                  numeroReclamo: meta.numeroReclamo || null,
+                  anio: meta.anio || null
+                } : null);
                 setFile(f);
                 setStep(1);
                 setSacSearchOpen(false);
