@@ -564,6 +564,96 @@
   animation: float 4s ease-in-out infinite;
 }
 
+/* Google Sites monta la app en un iframe y deja una barra propia fija de 56px
+   (hamburguesa · logo · lupa) por encima. Sin este margen, el scrollIntoView de
+   bringChromeIntoView alinea la cabecera con el borde superior de la página
+   padre y esa barra la tapa. */
+#pai-app-header {
+  scroll-margin-top: 72px;
+}
+
+/* ===== CRT WINDOW CLOSE / OPEN (buscador SAC) ===== */
+/* El panel colapsa a una línea horizontal y vuelve a abrirse, como el apagado
+   y encendido de un monitor de tubo. */
+@keyframes crtCollapse {
+  0% {
+    transform: scaleY(1) scaleX(1);
+    filter: brightness(1) contrast(1);
+    opacity: 1;
+  }
+  55% {
+    transform: scaleY(0.04) scaleX(1);
+    filter: brightness(2.6) contrast(1.4);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(0.01) scaleX(0.16);
+    filter: brightness(4) contrast(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes crtExpand {
+  0% {
+    transform: scaleY(0.01) scaleX(0.16);
+    filter: brightness(4) contrast(1.6);
+    opacity: 0;
+  }
+  40% {
+    transform: scaleY(0.04) scaleX(1);
+    filter: brightness(2.6) contrast(1.4);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1) scaleX(1);
+    filter: brightness(1) contrast(1);
+    opacity: 1;
+  }
+}
+
+@keyframes crtScan {
+  from { transform: translateY(-2rem); }
+  to { transform: translateY(30rem); }
+}
+
+.sac-crt-close {
+  transform-origin: center;
+  animation: crtCollapse 260ms cubic-bezier(0.55, 0, 1, 0.45) both;
+}
+
+.sac-crt-open {
+  transform-origin: center;
+  animation: crtExpand 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Barrido de línea de escaneo mientras se consulta el SAC */
+.sac-scanline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  opacity: 0.5;
+  pointer-events: none;
+  animation: crtScan 2.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sac-crt-close,
+  .sac-crt-open {
+    animation: none;
+  }
+  .sac-crt-close {
+    opacity: 0;
+  }
+  .sac-scanline::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* ===== PREMIUM DIRECTIONAL PAGE TRANSITIONS ===== */
 @keyframes slideForward {
   from {

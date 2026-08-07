@@ -28,10 +28,10 @@ export function useVisualViewportAnchor(enabled = false) {
       const top = vv.offsetTop + margin;
       const maxHeight = Math.max(180, vv.height - margin * 2);
 
+      // Solo se ajusta el eje vertical: el centrado horizontal lo resuelven
+      // las utilidades `left-1/2` + `-translate-x-1/2` del diálogo.
       setStyle({
         top: `${top}px`,
-        left: '50%',
-        transform: 'translateX(-50%)',
         maxHeight: `${maxHeight}px`,
       });
     };

@@ -498,6 +498,13 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
           transition-all duration-200 select-none relative overflow-hidden
           ${content.className}`}
       >
+        {isInteractable && (
+          <div className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden pointer-events-none">
+            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-1" />
+            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-2" />
+            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-3" />
+          </div>
+        )}
         <input 
           ref={inputRef} 
           type="file" 
@@ -507,7 +514,7 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
           onChange={(e) => e.target.files?.[0] && validate(e.target.files[0])} 
         />
         <div className={`relative z-10 transition-all duration-200
-          ${isInteractable ? 'text-primary' : 'text-muted-foreground'}
+          ${isInteractable ? 'animate-float text-primary' : 'text-muted-foreground'}
           ${!isInteractable && !checking && !connecting ? 'text-red-500' : ''}
           ${active ? 'scale-105 text-primary' : ''}`}
         >
@@ -549,6 +556,9 @@ const SAC_STATUS_LABELS = {
 
 const SAC_MUNI_LOGO = '/marca_muni/Marca_SF_2026_AzulVerticalSobreFondoVerde.png';
 
+// Debe coincidir con la duración de .sac-crt-close en index.css
+const SAC_CRT_CLOSE_MS = 260;
+
 const SAC_PROGRESS_STEPS = [
   { id: 'queued', label: 'Preparando' },
   { id: 'running', label: 'Consultando SAC' },
@@ -571,8 +581,11 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   const [searchProgress, setSearchProgress] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // 'form' → 'closing' (colapso CRT del formulario) → 'busy' (panel de progreso)
+  const [phase, setPhase] = useState('form');
   const abortRef = useRef(null);
   const pollRef = useRef(null);
+  const phaseRef = useRef(null);
   const numeroInputRef = useRef(null);
 
   useEffect(() => {
@@ -580,6 +593,8 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
     const timer = window.setTimeout(() => numeroInputRef.current?.focus(), 120);
     return () => window.clearTimeout(timer);
   }, [busy]);
+
+  useEffect(() => () => window.clearTimeout(phaseRef.current), []);
 
   const clearPolling = useCallback(() => {
     if (pollRef.current) {
@@ -679,6 +694,11 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
     setStatusText(SAC_STATUS_LABELS.queued);
     setSearchProgress(10);
 
+    // La petición ya salió: el colapso CRT es puramente visual y no la demora.
+    setPhase('closing');
+    window.clearTimeout(phaseRef.current);
+    phaseRef.current = window.setTimeout(() => setPhase('busy'), SAC_CRT_CLOSE_MS);
+
     try {
       const createRes = await fetch(`${backendUrl}/sac/fetch-single-claim`, {
         method: 'POST',
@@ -732,6 +752,8 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       showToast?.(message, 'error');
     } finally {
       setBusy(false);
+      window.clearTimeout(phaseRef.current);
+      setPhase('form');
       abortRef.current = null;
     }
   };
@@ -747,8 +769,8 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
 
   return (
     <form onSubmit={handleSearch} className="overflow-hidden">
-      {busy ? (
-        <section className="animate-in fade-in slide-in-from-top-2 duration-300">
+      {phase === 'busy' ? (
+        <section className="sac-crt-open sac-scanline relative">
           <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-5 py-4 sm:px-7">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background">
@@ -811,8 +833,8 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
           </div>
         </section>
       ) : (
-        <section className="animate-in fade-in slide-in-from-bottom-2 duration-300 md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          <div className="flex flex-col justify-between gap-5 border-b border-border/60 bg-muted/20 px-5 py-5 sm:px-6 md:border-b-0 md:border-r md:border-l-[3px] md:border-l-[#1a7a4a] md:px-7 md:py-7">
+        <section className={`${phase === 'closing' ? 'sac-crt-close' : 'sac-crt-open'} md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]`}>
+          <div className="flex flex-col justify-between gap-5 border-b border-border/60 bg-muted/20 px-5 py-5 sm:px-6 md:border-b-0 md:border-r md:px-7 md:py-7">
             <div className="flex items-center gap-3">
               <img
                 src={SAC_MUNI_LOGO}
