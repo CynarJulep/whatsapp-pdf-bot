@@ -42,25 +42,19 @@ function json(status, body) {
 }
 
 /**
- * Resolve backend path `/sac/...` from either:
- * - Direct function path config: /api/sac/...
- * - Redirect rewrite: /.netlify/functions/sac-proxy/sac/...
+ * Resolve backend path `/sac/...` from:
+ * - Direct config paths: /api/sac/...
+ * - Function rewrite: /.netlify/functions/sac-proxy/...
  */
 function resolveSacPath(pathname) {
   const apiMatch = pathname.match(/^\/api(\/sac(?:\/.*)?)$/);
   if (apiMatch) return apiMatch[1];
 
-  const fnMatch = pathname.match(/\/\.netlify\/functions\/sac-proxy(\/sac(?:\/.*)?)$/);
-  if (fnMatch) return fnMatch[1];
-
-  // Fallback: trailing splat after function name
-  const splatMatch = pathname.match(/\/\.netlify\/functions\/sac-proxy\/?(.*)$/);
-  if (splatMatch) {
-    const rest = (splatMatch[1] || '').replace(/^\/+/, '');
-    if (!rest || rest === 'sac') return '/sac';
-    return rest.startsWith('sac/') || rest.startsWith('sac?')
-      ? `/${rest}`
-      : `/sac/${rest}`;
+  const fnMatch = pathname.match(/\/\.netlify\/functions\/sac-proxy(?:\/(.*))?$/);
+  if (fnMatch) {
+    const rest = (fnMatch[1] || '').replace(/^\/+/, '');
+    if (!rest) return '/sac';
+    return rest.startsWith('sac') ? `/${rest}` : `/sac/${rest}`;
   }
 
   return null;
@@ -93,7 +87,11 @@ export default async (req, context) => {
   const url = new URL(req.url);
   const targetPath = resolveSacPath(url.pathname);
   if (!targetPath) {
-    return json(404, { success: false, message: 'Ruta SAC no encontrada.' });
+    return json(404, {
+      success: false,
+      message: 'Ruta SAC no encontrada.',
+      path: url.pathname,
+    });
   }
 
   const target = `${BACKEND_URL}${targetPath}${url.search}`;
@@ -133,7 +131,5 @@ export default async (req, context) => {
   }
 };
 
-export const config = {
-  path: ['/api/sac', '/api/sac/*'],
-  method: ['GET', 'POST', 'OPTIONS'],
-};
+// Without custom path, Netlify serves this at /.netlify/functions/sac-proxy
+// and our redirects rewrite /api/sac/* onto that endpoint with splat.

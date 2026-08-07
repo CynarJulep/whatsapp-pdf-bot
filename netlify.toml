@@ -14,7 +14,8 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-# Proxy seguro SAC (inyecta SAC_AUTOMATION_TOKEN). force=true gana al redirect genérico.
+# Proxy seguro SAC → Function (inyecta SAC_AUTOMATION_TOKEN).
+# force=true gana al redirect genérico /api/* hacia Render.
 [[redirects]]
   from = "/api/sac"
   to = "/.netlify/functions/sac-proxy/sac"
@@ -23,7 +24,7 @@
 
 [[redirects]]
   from = "/api/sac/*"
-  to = "/.netlify/functions/sac-proxy/sac/:splat"
+  to = "/.netlify/functions/sac-proxy/:splat"
   status = 200
   force = true
 
