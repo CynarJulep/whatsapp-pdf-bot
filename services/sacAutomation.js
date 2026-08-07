@@ -56,14 +56,19 @@ async function prepareLocalSessionState(remoteLoad) {
 }
 
 async function waitForFirst(page, selectors, timeout = 15000) {
-  for (const selector of selectors) {
-    try {
-      const locator = page.locator(selector).first();
-      await locator.waitFor({ state: 'visible', timeout });
-      return locator;
-    } catch (_) {
-      // Try next selector
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const selector of selectors) {
+      try {
+        const locator = page.locator(selector).first();
+        if (await locator.count() && await locator.isVisible()) {
+          return locator;
+        }
+      } catch (_) {
+        // Frame/page may be navigating; retry all selectors until the global deadline.
+      }
     }
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`No se encontró ningún selector válido: ${selectors.join(', ')}`);
 }
@@ -88,16 +93,21 @@ function buildDetailedSelectorError(selectors, scopes) {
 }
 
 async function waitForFirstInScopes(scopes, selectors, timeout = 15000) {
-  for (const scope of scopes) {
-    for (const selector of selectors) {
-      try {
-        const locator = scope.locator(selector).first();
-        await locator.waitFor({ state: 'visible', timeout });
-        return { locator, scope, selector };
-      } catch (_) {
-        // Try next selector/scope
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const scope of scopes) {
+      for (const selector of selectors) {
+        try {
+          const locator = scope.locator(selector).first();
+          if (await locator.count() && await locator.isVisible()) {
+            return { locator, scope, selector };
+          }
+        } catch (_) {
+          // A child frame may detach during navigation; retry all scopes.
+        }
       }
     }
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(buildDetailedSelectorError(selectors, scopes));
 }
@@ -298,11 +308,12 @@ async function openClaimDetail(scope, numeroReclamo, anio) {
 }
 
 async function triggerPdfDownload({ page, scope, context, numeroReclamo, timeoutMs }) {
+  const downloadWaitMs = Math.min(timeoutMs, 12000);
   const printButton = scope.locator('input[type="button"][value="Imprimir"], button:has-text("Imprimir")').first();
   if (await printButton.count()) {
     try {
       const popupPromise = page.waitForEvent('popup', { timeout: 12000 }).catch(() => null);
-      const downloadPromise = page.waitForEvent('download', { timeout: timeoutMs });
+      const downloadPromise = page.waitForEvent('download', { timeout: downloadWaitMs });
       await printButton.click({ timeout: 5000 });
       const download = await downloadPromise;
       const popup = await popupPromise;
@@ -337,7 +348,7 @@ async function triggerPdfDownload({ page, scope, context, numeroReclamo, timeout
     if (!count) continue;
 
     try {
-      const downloadPromise = page.waitForEvent('download', { timeout: timeoutMs });
+      const downloadPromise = page.waitForEvent('download', { timeout: downloadWaitMs });
       await locator.click({ timeout: 5000 });
       const download = await downloadPromise;
       const diskPath = await download.path();
@@ -446,7 +457,9 @@ async function runSacSingleClaimFetch({
       const page = await context.newPage();
       page.setDefaultTimeout(SAC_TIMEOUT_MS);
 
+      console.log(`[SAC] Etapa login (${numeroReclamo}/${anio})`);
       await ensureLoggedIn(page, context, usuario, contrasena, remoteSaveSessionState);
+      console.log(`[SAC] Login/sesión OK (${numeroReclamo}/${anio})`);
 
       const resolveSearchForm = async () => {
         const scopes = getSearchScopes(page);
@@ -550,6 +563,7 @@ async function runSacSingleClaimFetch({
 
       let form;
       try {
+        console.log(`[SAC] Etapa detectar formulario (${numeroReclamo}/${anio})`);
         form = await resolveSearchForm();
       } catch (firstError) {
         console.warn(`[SAC] No se pudo detectar el formulario de búsqueda al primer intento: ${firstError.message}`);
@@ -562,6 +576,7 @@ async function runSacSingleClaimFetch({
       }
 
       const { numeroInput, anioInput, buscarButton, activeScope } = form;
+      console.log(`[SAC] Formulario detectado (${numeroReclamo}/${anio})`);
 
       await maybeFill(numeroInput, numeroReclamo);
 
@@ -581,8 +596,10 @@ async function runSacSingleClaimFetch({
         buscarButton.click()
       ]);
 
+      console.log(`[SAC] Búsqueda enviada; abriendo resultado (${numeroReclamo}/${anio})`);
       await openClaimDetail(activeScope, numeroReclamo, anio);
 
+      console.log(`[SAC] Resultado abierto; descargando PDF (${numeroReclamo}/${anio})`);
       const { pdfBuffer, suggestedFileName } = await triggerPdfDownload({
         page,
         scope: activeScope,
