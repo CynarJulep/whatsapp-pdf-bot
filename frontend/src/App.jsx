@@ -7,7 +7,7 @@ import {
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
   Check, Plus, Loader2, Zap, MapPin, ArrowRight,
   History, Clock, ChevronDown, ChevronUp, HelpCircle, BookOpen,
-  Copy, Hash
+  Copy, FileSearch
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Spinner } from '@/components/ui/spinner';
 
 import SubtypesCatalogDialog from '@/components/SubtypesCatalogDialog';
 
@@ -444,7 +447,7 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
   } else {
     content = {
       icon: <UploadCloud className="w-10 h-10 text-primary" />,
-      title: active ? 'Soltá para cargar' : 'O cargá el PDF manualmente',
+      title: active ? 'Soltá para cargar' : 'Cargar PDF manualmente',
       description: "Arrastrá acá o tocá para buscar en tus archivos",
       className: active 
         ? 'border-primary bg-primary/5 scale-[1.01]' 
@@ -675,77 +678,68 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   if (!enabled) return null;
 
   return (
-    <Card className="w-full max-w-4xl border border-border shadow-none">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
-          <Hash className="w-4 h-4 text-primary" />
-          Buscar reclamo en SAC
-        </CardTitle>
-        <CardDescription>
-          Ingresá número y año. El sistema descarga el PDF y lo abre acá para revisar y enviar.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSearch} className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-3 items-end">
-            <div className="space-y-1.5">
-              <Label htmlFor="sac-numero">Número de reclamo</Label>
-              <Input
-                id="sac-numero"
-                inputMode="numeric"
-                placeholder="Ej. 12345"
-                value={numero}
-                disabled={busy || !connected}
-                onChange={(e) => setNumero(e.target.value.replace(/[^0-9-]/g, ''))}
-                className="h-10"
-                autoComplete="off"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sac-anio">Año</Label>
-              <Input
-                id="sac-anio"
-                inputMode="numeric"
-                placeholder={String(currentYear)}
-                value={anio}
-                disabled={busy || !connected}
-                onChange={(e) => setAnio(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                className="h-10"
-                autoComplete="off"
-              />
-            </div>
-            <Button
-              type="submit"
-              disabled={busy || !connected || !numero.trim()}
-              className="h-10 gap-2 sm:min-w-[140px]"
-            >
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              {busy ? 'Buscando…' : 'Buscar'}
-            </Button>
-          </div>
+    <form onSubmit={handleSearch} className="flex flex-col gap-4">
+      <FieldGroup className="grid grid-cols-1 items-end sm:grid-cols-[1fr_9rem_auto]">
+        <Field data-disabled={busy || !connected} data-invalid={!!error && !numero.trim()}>
+          <FieldLabel htmlFor="sac-numero">Número de reclamo</FieldLabel>
+          <Input
+            id="sac-numero"
+            inputMode="numeric"
+            placeholder="Ej. 63864"
+            value={numero}
+            disabled={busy || !connected}
+            aria-invalid={!!error && !numero.trim()}
+            onChange={(e) => setNumero(e.target.value.replace(/[^0-9-]/g, ''))}
+            autoComplete="off"
+            autoFocus
+          />
+          {!!error && !numero.trim() && <FieldError>Ingresá el número de reclamo.</FieldError>}
+        </Field>
 
-          {busy && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground rounded-lg border border-border bg-muted/30 px-3 py-2">
-              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-              <span>{statusText || 'Procesando…'}</span>
-            </div>
-          )}
+        <Field data-disabled={busy || !connected}>
+          <FieldLabel htmlFor="sac-anio">Año</FieldLabel>
+          <Input
+            id="sac-anio"
+            inputMode="numeric"
+            placeholder={String(currentYear)}
+            value={anio}
+            disabled={busy || !connected}
+            onChange={(e) => setAnio(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+            autoComplete="off"
+          />
+        </Field>
 
-          {error && !busy && (
-            <div className="flex items-start gap-2 text-sm text-red-600 dark:text-red-400 rounded-lg border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 px-3 py-2">
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
+        <Field className="sm:w-auto">
+          <Button type="submit" disabled={busy || !connected || !numero.trim()}>
+            {busy ? <Spinner data-icon="inline-start" /> : <Search data-icon="inline-start" />}
+            {busy ? 'Buscando…' : 'Buscar PDF'}
+          </Button>
+        </Field>
+      </FieldGroup>
 
-          {!connected && (
-            <p className="text-xs text-muted-foreground">
-              Conectá WhatsApp para habilitar la búsqueda automática.
-            </p>
-          )}
-        </form>
-      </CardContent>
-    </Card>
+      {busy && (
+        <Alert>
+          <Spinner />
+          <AlertDescription>{statusText || 'Procesando…'}</AlertDescription>
+        </Alert>
+      )}
+
+      {error && !busy && (
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {!connected && (
+        <Alert>
+          <WifiOff />
+          <AlertDescription>
+            Conectá WhatsApp desde Configuración para habilitar la búsqueda.
+          </AlertDescription>
+        </Alert>
+      )}
+    </form>
   );
 }
 
@@ -2345,6 +2339,7 @@ function HistoryTab({ shipments, loading, onReload }) {
 export default function App() {
   const [dark, setDark] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [sacSearchOpen, setSacSearchOpen] = useState(false);
   const [configTab, setConfigTab] = useState('contacts');
   const [contacts, setContacts] = useState([]);
   const [loadingContacts, setLoadingContacts] = useState(true);
@@ -2804,6 +2799,23 @@ export default function App() {
           <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
             <Tooltip>
               <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  onClick={() => setSacSearchOpen(true)}
+                  disabled={!botStatus.sacEnabled}
+                  aria-label="Buscar reclamo en SAC"
+                >
+                  <FileSearch />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{botStatus.sacEnabled ? 'Buscar reclamo en SAC' : 'SAC no disponible'}</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <button 
                   onClick={() => setHelpOpen(true)} 
                   className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 active:scale-95 transition-all duration-150 cursor-pointer"
@@ -2898,26 +2910,6 @@ export default function App() {
 
           {step === 0 && (
             <div className="animate-slide-backward flex flex-col items-center gap-6 w-full">
-              <SacClaimSearch
-                enabled={!!botStatus.sacEnabled}
-                connected={!!botStatus.connected}
-                showToast={showToast}
-                onReady={(f, meta) => {
-                  setSacSource(meta?.storagePath ? { storagePath: meta.storagePath, jobId: meta.jobId } : null);
-                  setFile(f);
-                  setStep(1);
-                  requestAnimationFrame(() => {
-                    bringChromeIntoView(headerRef.current);
-                  });
-                }}
-              />
-              {botStatus.sacEnabled && (
-                <div className="w-full max-w-4xl flex items-center gap-3 text-xs text-muted-foreground">
-                  <Separator className="flex-1" />
-                  <span className="shrink-0 uppercase">o</span>
-                  <Separator className="flex-1" />
-                </div>
-              )}
               <DropZone 
                 onFile={(f) => {
                   setSacSource(null);
@@ -3016,6 +3008,41 @@ export default function App() {
             </div>
           </div>
         </footer>
+
+        {/* ── Buscador SAC dedicado ── */}
+        <Dialog open={sacSearchOpen} onOpenChange={setSacSearchOpen}>
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <div className="flex items-center justify-between gap-3 pr-8">
+                <DialogTitle className="flex items-center gap-2">
+                  <FileSearch />
+                  Buscar reclamo en SAC
+                </DialogTitle>
+                <Badge variant={botStatus.connected ? 'secondary' : 'outline'}>
+                  {botStatus.connected ? 'Disponible' : 'WhatsApp desconectado'}
+                </Badge>
+              </div>
+              <DialogDescription>
+                Ingresá el número y año. El PDF se descargará y abrirá en la vista previa antes de derivarlo.
+              </DialogDescription>
+            </DialogHeader>
+
+            <SacClaimSearch
+              enabled={!!botStatus.sacEnabled}
+              connected={!!botStatus.connected}
+              showToast={showToast}
+              onReady={(f, meta) => {
+                setSacSource(meta?.storagePath ? { storagePath: meta.storagePath, jobId: meta.jobId } : null);
+                setFile(f);
+                setStep(1);
+                setSacSearchOpen(false);
+                requestAnimationFrame(() => {
+                  bringChromeIntoView(headerRef.current);
+                });
+              }}
+            />
+          </DialogContent>
+        </Dialog>
 
         {/* ── Modal de Configuración Único (Contactos + Estado del Bot) ── */}
         <Dialog open={configOpen} onOpenChange={setConfigOpen}>
