@@ -508,7 +508,7 @@
 }
 
 /* Specific horizontal spacing optimizations for screens <= 1380px wide */
-@media (max-width: 1380px) {
+@media (min-width: 768px) and (max-width: 1380px) {
   .msf-header-container h1 {
     font-size: 1.5rem !important;
   }

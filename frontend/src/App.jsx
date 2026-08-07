@@ -532,9 +532,6 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
               </Button>
             </div>
           )}
-          {isInteractable && (
-            <p className="text-xs text-muted-foreground/70 pt-1">Solo PDF · Máximo 50 MB</p>
-          )}
         </div>
       </div>
     </div>
@@ -549,6 +546,12 @@ const SAC_STATUS_LABELS = {
   ready: 'PDF listo',
   failed: 'No se pudo obtener el reclamo'
 };
+
+const SAC_PROGRESS_STEPS = [
+  { id: 'queued', label: 'Preparando' },
+  { id: 'running', label: 'Consultando SAC' },
+  { id: 'downloading', label: 'Descargando PDF' }
+];
 
 function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   const currentYear = new Date().getFullYear();
@@ -582,6 +585,22 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
 
   useEffect(() => () => clearPolling(), [clearPolling]);
 
+  useEffect(() => {
+    if (!busy) return undefined;
+
+    const ceilings = { queued: 28, running: 82, downloading: 94 };
+    const timer = window.setInterval(() => {
+      setSearchProgress((current) => {
+        const ceiling = ceilings[jobStatus] || 82;
+        if (current >= ceiling) return current;
+        const remaining = ceiling - current;
+        return Math.min(ceiling, current + Math.max(0.2, remaining * 0.035));
+      });
+    }, 120);
+
+    return () => window.clearInterval(timer);
+  }, [busy, jobStatus]);
+
   const pollJob = useCallback(async (jobId, signal) => {
     const res = await fetch(`${backendUrl}/sac/jobs/${encodeURIComponent(jobId)}`, { signal });
     const data = await res.json().catch(() => ({}));
@@ -600,12 +619,6 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       const job = await pollJob(jobId, signal);
       setJobStatus(job.status || 'running');
       setStatusText(SAC_STATUS_LABELS[job.status] || 'Procesando…');
-      setSearchProgress((current) => {
-        if (job.status === 'queued') return Math.min(Math.max(current, 18) + 4, 36);
-        if (job.status === 'running') return Math.min(Math.max(current, 44) + 7, 82);
-        if (job.status === 'ready') return Math.max(current, 88);
-        return current;
-      });
 
       if (job.status === 'ready') {
         return job;
@@ -674,7 +687,6 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       }
 
       setJobStatus(createData.job.status || 'queued');
-      setSearchProgress(18);
       const readyJob = await waitForJob(createData.job.id, controller.signal);
 
       const downloadUrl = readyJob.signedUrl || readyJob.publicUrl;
@@ -716,120 +728,153 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   };
 
   if (!enabled) return null;
+  const displayedProgress = Math.round(searchProgress);
+  const currentStepIndex = Math.max(
+    0,
+    SAC_PROGRESS_STEPS.findIndex((step) => step.id === jobStatus)
+  );
 
   return (
-    <form onSubmit={handleSearch} className="flex flex-col md:flex-row md:items-stretch">
-      <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-5 sm:px-6 md:w-[42%] md:border-b-0 md:border-r md:py-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/30">
-            <FileSearch className="h-4 w-4 text-muted-foreground" />
+    <form onSubmit={handleSearch} className="overflow-hidden">
+      {busy ? (
+        <section className="animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-5 py-4 sm:px-7">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Buscando reclamo</p>
+                <p className="truncate text-xs text-muted-foreground">Solicitud {numero} · {anio}</p>
+              </div>
+            </div>
+            <img
+              src="/santa-fe-capital.png"
+              alt="Municipalidad de Santa Fe"
+              className="h-9 w-auto object-contain"
+            />
           </div>
-          <div className="min-w-0">
-            <h3 className="text-base font-semibold tracking-tight text-foreground">
-              Buscar reclamo en SAC
-            </h3>
-            <p className="text-xs text-muted-foreground md:hidden">
-              Ingresá el número y año del reclamo.
+
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-label={`Estado de búsqueda: ${statusText || 'Procesando'}`}
+            className="flex min-h-56 flex-col justify-center gap-7 px-5 py-10 sm:min-h-64 sm:px-12"
+          >
+            <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
+              <span className="text-sm font-medium text-foreground">{statusText || 'Procesando…'}</span>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Estamos consultando SAC y preparando el documento para la vista previa.
+              </p>
+            </div>
+            <div className="mx-auto w-full max-w-md space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Progreso estimado</span>
+                <span className="font-medium tabular-nums text-foreground">{displayedProgress}%</span>
+              </div>
+              <Progress value={searchProgress} aria-label="Progreso estimado de búsqueda del reclamo" className="h-2" />
+            </div>
+            <ol className="mx-auto flex w-full max-w-md items-start justify-between gap-2" aria-label="Etapas de búsqueda">
+              {SAC_PROGRESS_STEPS.map((step, index) => {
+                const complete = index < currentStepIndex;
+                const current = index === currentStepIndex;
+                return (
+                  <li key={step.id} className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
+                    <span className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs ${
+                      complete || current
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-background text-muted-foreground'
+                    }`}>
+                      {complete ? <Check className="h-3.5 w-3.5" /> : index + 1}
+                    </span>
+                    <span className={`text-[11px] leading-tight ${
+                      current ? 'font-medium text-foreground' : 'text-muted-foreground'
+                    }`}>
+                      {step.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </section>
+      ) : (
+        <section className="animate-in fade-in slide-in-from-bottom-2 duration-300 md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="flex flex-col justify-between gap-5 border-b border-border/60 bg-muted/20 px-5 py-5 sm:px-6 md:border-b-0 md:border-r md:px-7 md:py-7">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#003b73] p-2">
+                <img
+                  src="/santa-fe-capital.png"
+                  alt="Municipalidad de Santa Fe"
+                  className="h-full w-full object-contain"
+                />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold tracking-tight text-foreground">Buscar reclamo en SAC</h3>
+                <p className="text-xs text-muted-foreground">Atención Ciudadana · PAI</p>
+              </div>
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Ingresá el número y año. El PDF se descargará y abrirá en la vista previa antes de derivarlo.
             </p>
           </div>
-        </div>
-        <p className="hidden text-sm leading-relaxed text-muted-foreground md:block">
-          Ingresá el número y año. El PDF se descargará y abrirá en la vista previa antes de derivarlo.
-        </p>
-        {busy && (
-          <div className="hidden md:block">
-            <Alert className="border-border/60 bg-muted/20">
-              <Spinner />
-              <AlertDescription className="flex flex-col gap-2">
-                <span className="flex items-center justify-between gap-3">
-                  <span>{statusText || 'Procesando…'}</span>
-                  <span className="tabular-nums text-xs">{searchProgress}%</span>
-                </span>
-                <Progress value={searchProgress} aria-label="Progreso de búsqueda del reclamo" />
-              </AlertDescription>
-            </Alert>
+
+          <div className="flex flex-col gap-4 px-5 py-5 sm:px-6 md:px-7 md:py-7">
+            <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_7.5rem]">
+              <Field data-disabled={!connected} data-invalid={!!error && !numero.trim()}>
+                <FieldLabel htmlFor="sac-numero">Número de reclamo</FieldLabel>
+                <Input
+                  id="sac-numero"
+                  inputMode="numeric"
+                  placeholder="Ej. 63864"
+                  value={numero}
+                  disabled={!connected}
+                  aria-invalid={!!error && !numero.trim()}
+                  onChange={(e) => setNumero(e.target.value.replace(/[^0-9-]/g, ''))}
+                  autoComplete="off"
+                  autoFocus
+                  className="h-11"
+                />
+                {!!error && !numero.trim() && <FieldError>Ingresá el número de reclamo.</FieldError>}
+              </Field>
+
+              <Field data-disabled={!connected}>
+                <FieldLabel htmlFor="sac-anio">Año</FieldLabel>
+                <Select value={anio} onValueChange={setAnio} disabled={!connected}>
+                  <SelectTrigger id="sac-anio" className="h-11 w-full">
+                    <SelectValue placeholder={String(currentYear)} />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    {yearOptions.map((year) => (
+                      <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </FieldGroup>
+
+            <Button type="submit" disabled={!connected || !numero.trim()} className="h-11 w-full sm:w-auto sm:self-start">
+              <Search data-icon="inline-start" />
+              Buscar PDF
+            </Button>
+
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {!connected && (
+              <Alert>
+                <WifiOff />
+                <AlertDescription>Conectá WhatsApp desde Configuración para habilitar la búsqueda.</AlertDescription>
+              </Alert>
+            )}
           </div>
-        )}
-      </div>
-
-      <div className="flex flex-1 flex-col gap-4 px-5 py-5 sm:px-6 md:py-6">
-        <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_7.5rem]">
-          <Field data-disabled={busy || !connected} data-invalid={!!error && !numero.trim()}>
-            <FieldLabel htmlFor="sac-numero">Número de reclamo</FieldLabel>
-            <Input
-              id="sac-numero"
-              inputMode="numeric"
-              placeholder="Ej. 63864"
-              value={numero}
-              disabled={busy || !connected}
-              aria-invalid={!!error && !numero.trim()}
-              onChange={(e) => setNumero(e.target.value.replace(/[^0-9-]/g, ''))}
-              autoComplete="off"
-              autoFocus
-              className="h-10"
-            />
-            {!!error && !numero.trim() && <FieldError>Ingresá el número de reclamo.</FieldError>}
-          </Field>
-
-          <Field data-disabled={busy || !connected}>
-            <FieldLabel htmlFor="sac-anio">Año</FieldLabel>
-            <Select
-              value={anio}
-              onValueChange={setAnio}
-              disabled={busy || !connected}
-            >
-              <SelectTrigger id="sac-anio" className="h-10 w-full">
-                <SelectValue placeholder={String(currentYear)} />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                {yearOptions.map((year) => (
-                  <SelectItem key={year} value={String(year)}>
-                    {year}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-        </FieldGroup>
-
-        <Button
-          type="submit"
-          disabled={busy || !connected || !numero.trim()}
-          className="h-10 w-full sm:w-auto sm:self-start"
-        >
-          {busy ? <Spinner data-icon="inline-start" /> : <Search data-icon="inline-start" />}
-          {busy ? 'Buscando…' : 'Buscar PDF'}
-        </Button>
-
-        {busy && (
-          <Alert className="md:hidden">
-            <Spinner />
-            <AlertDescription className="flex flex-col gap-2">
-              <span className="flex items-center justify-between gap-3">
-                <span>{statusText || 'Procesando…'}</span>
-                <span className="tabular-nums">{searchProgress}%</span>
-              </span>
-              <Progress value={searchProgress} aria-label="Progreso de búsqueda del reclamo" />
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {error && !busy && (
-          <Alert variant="destructive">
-            <AlertCircle />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {!connected && (
-          <Alert>
-            <WifiOff />
-            <AlertDescription>
-              Conectá WhatsApp desde Configuración para habilitar la búsqueda.
-            </AlertDescription>
-          </Alert>
-        )}
-      </div>
+        </section>
+      )}
     </form>
   );
 }
@@ -2942,29 +2987,30 @@ export default function App() {
           ref={headerRef}
           className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-sm"
         >
-        <div className="max-w-6xl mx-auto w-full px-4 pt-5 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-6 border-b-2 border-[#003b73] msf-header-container">
-          <div className="flex flex-col gap-2 min-w-0 flex-1">
+        <div className="max-w-6xl mx-auto w-full px-4 pt-4 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-6 border-b-2 border-[#003b73] msf-header-container">
+          <div className="flex flex-col gap-1.5 min-w-0 w-full sm:w-auto sm:flex-1">
             <h1 
-              className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tighter leading-[0.95] uppercase select-none transition-all duration-300 text-foreground msf-title"
+              className="text-2xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tighter leading-[0.95] uppercase select-none text-foreground msf-title"
             >
               Protocolo de Acción Inmediata
             </h1>
-            <p className="text-xs sm:text-sm font-extrabold text-muted-foreground uppercase tracking-widest pl-1 mt-1 msf-subtitle">
+            <p className="text-xs sm:text-sm font-bold text-muted-foreground uppercase tracking-[0.08em] pl-0.5 msf-subtitle">
               Derivaciones · Atención Ciudadana
             </p>
           </div>
-          <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+          <div className="flex w-full items-center justify-between gap-1 sm:w-auto sm:justify-end sm:gap-1.5 shrink-0">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
                   size="icon"
                   variant="ghost"
+                  className="h-11 w-11 rounded-xl"
                   onClick={() => setSacSearchOpen(true)}
                   disabled={!botStatus.sacEnabled}
                   aria-label="Buscar reclamo en SAC"
                 >
-                  <FileSearch />
+                  <FileSearch className="h-5 w-5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -2975,10 +3021,12 @@ export default function App() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button 
+                  type="button"
                   onClick={() => setHelpOpen(true)} 
-                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 active:scale-95 transition-all duration-150 cursor-pointer"
+                  aria-label="¿Cómo funciona?"
+                  className="inline-flex items-center justify-center h-11 w-11 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 active:scale-95 transition-colors duration-150 cursor-pointer"
                 >
-                  <HelpCircle className="w-[18px] h-[18px]" />
+                  <HelpCircle className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent><p>¿Cómo funciona?</p></TooltipContent>
@@ -2987,10 +3035,12 @@ export default function App() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button 
+                  type="button"
                   onClick={() => setDark(!dark)} 
-                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-all duration-150 cursor-pointer"
+                  aria-label={dark ? 'Activar modo claro' : 'Activar modo oscuro'}
+                  className="inline-flex items-center justify-center h-11 w-11 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-colors duration-150 cursor-pointer"
                 >
-                  {dark ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
+                  {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
                 </button>
               </TooltipTrigger>
               <TooltipContent><p>{dark ? 'Modo claro' : 'Modo oscuro'}</p></TooltipContent>
@@ -2999,13 +3049,15 @@ export default function App() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button 
+                  type="button"
                   onClick={() => {
                     loadShipments();
                     setHistoryOpen(true);
                   }} 
-                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-all duration-150 cursor-pointer"
+                  aria-label="Abrir historial completo"
+                  className="inline-flex items-center justify-center h-11 w-11 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-colors duration-150 cursor-pointer"
                 >
-                  <History className="w-[18px] h-[18px]" />
+                  <History className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent><p>Historial Completo</p></TooltipContent>
@@ -3014,13 +3066,15 @@ export default function App() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button 
+                  type="button"
                   onClick={() => {
                     loadCatalog();
                     setCatalogOpen(true);
                   }} 
-                  className="inline-flex items-center justify-center h-10 w-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-all duration-150 cursor-pointer"
+                  aria-label="Abrir catálogo PAI"
+                  className="inline-flex items-center justify-center h-11 w-11 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent active:scale-95 transition-colors duration-150 cursor-pointer"
                 >
-                  <BookOpen className="w-[18px] h-[18px]" />
+                  <BookOpen className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent><p>Catálogo PAI</p></TooltipContent>
@@ -3029,14 +3083,16 @@ export default function App() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button 
+                  type="button"
                   onClick={handleOpenConfig} 
-                  className={`inline-flex items-center justify-center h-10 w-10 rounded-xl active:scale-95 transition-all duration-150 cursor-pointer ${
+                  aria-label="Abrir configuración"
+                  className={`inline-flex items-center justify-center h-11 w-11 rounded-xl active:scale-95 transition-colors duration-150 cursor-pointer ${
                     !botStatus.connected 
-                      ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse ring-2 ring-red-500/25' 
+                      ? 'bg-red-600 hover:bg-red-700 text-white ring-2 ring-red-500/25'
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                   }`}
                 >
-                  <Settings className="w-[18px] h-[18px]" />
+                  <Settings className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent><p>Configuración</p></TooltipContent>
