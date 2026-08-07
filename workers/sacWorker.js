@@ -1,4 +1,8 @@
-require('dotenv').config();
+require('dotenv').config(
+  process.env.SAC_WORKER_ENV_FILE
+    ? { path: process.env.SAC_WORKER_ENV_FILE }
+    : undefined
+);
 
 const { runSacSingleClaimFetch } = require('../services/sacAutomation');
 

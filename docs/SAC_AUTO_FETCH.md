@@ -120,6 +120,21 @@ npm run sac:worker
 4. No abrir puertos públicos; la PC solo sale hacia Supabase y SAC.
 5. Ejecutar `npm run sac:worker` desde Task Scheduler al iniciar sesión para recuperarlo tras un reinicio.
 
+### Instalación permanente en Windows
+
+El instalador crea la tarea `WhatsApp SAC Worker` bajo la cuenta `SYSTEM`, instala
+Chromium en `C:\ProgramData\WhatsAppSacWorker`, protege las credenciales con ACL
+y deshabilita suspensión/hibernación cuando la PC está enchufada:
+
+```powershell
+Start-Process powershell -Verb RunAs -Wait -ArgumentList `
+  '-NoProfile -ExecutionPolicy Bypass -File "C:\Renzo\WHATSAPP\scripts\install-sac-worker.ps1"'
+```
+
+La pantalla puede apagarse y cualquier usuario puede iniciar/cerrar sesión sin
+interrumpir el worker. El log operativo queda en
+`C:\ProgramData\WhatsAppSacWorker\worker.log`.
+
 El repo Python `sac-pdf-reclamos` queda como referencia de selectores, no como segundo backend de producción.
 
 ## Seguridad
