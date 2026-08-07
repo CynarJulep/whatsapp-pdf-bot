@@ -1032,6 +1032,122 @@ app.use('/sac', (req, res, next) => {
     });
 });
 
+app.post('/sac/worker/recover', async (req, res) => {
+    if (!isSacAuthAllowed(req)) {
+        return res.status(401).json({ success: false, message: 'Worker SAC no autorizado.' });
+    }
+    const { error } = await supabase
+        .from('sac_jobs')
+        .update({
+            status: 'queued',
+            started_at: null,
+            error_message: 'Reencolado tras reinicio del worker local.'
+        })
+        .eq('status', 'running');
+    if (error) return res.status(500).json({ success: false, message: error.message });
+    return res.json({ success: true });
+});
+
+app.post('/sac/worker/claim', async (req, res) => {
+    if (!isSacAuthAllowed(req)) {
+        return res.status(401).json({ success: false, message: 'Worker SAC no autorizado.' });
+    }
+    const { data: queued, error: findError } = await supabase
+        .from('sac_jobs')
+        .select('*')
+        .eq('status', 'queued')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+    if (findError) return res.status(500).json({ success: false, message: findError.message });
+    if (!queued) return res.json({ success: true, job: null });
+
+    const startedAt = new Date().toISOString();
+    const { data: claimed, error: claimError } = await supabase
+        .from('sac_jobs')
+        .update({ status: 'running', started_at: startedAt, finished_at: null, error_message: null })
+        .eq('id', queued.id)
+        .eq('status', 'queued')
+        .select('*')
+        .maybeSingle();
+    if (claimError) return res.status(500).json({ success: false, message: claimError.message });
+    if (claimed) sacJobsCache.set(claimed.id, claimed);
+    return res.json({ success: true, job: claimed || null });
+});
+
+app.get('/sac/worker/session', async (req, res) => {
+    if (!isSacAuthAllowed(req)) {
+        return res.status(401).json({ success: false, message: 'Worker SAC no autorizado.' });
+    }
+    return res.json({ success: true, state: await loadSacSessionState() });
+});
+
+app.put('/sac/worker/session', async (req, res) => {
+    if (!isSacAuthAllowed(req)) {
+        return res.status(401).json({ success: false, message: 'Worker SAC no autorizado.' });
+    }
+    await saveSacSessionState(req.body?.state);
+    return res.json({ success: true });
+});
+
+app.post(
+    '/sac/worker/jobs/:jobId/complete',
+    express.raw({ type: 'application/pdf', limit: '25mb' }),
+    async (req, res) => {
+        if (!isSacAuthAllowed(req)) {
+            return res.status(401).json({ success: false, message: 'Worker SAC no autorizado.' });
+        }
+        if (!Buffer.isBuffer(req.body) || req.body.length < 5) {
+            return res.status(400).json({ success: false, message: 'PDF vacío o inválido.' });
+        }
+
+        const job = await getSacJobById(req.params.jobId);
+        if (!job || job.status !== 'running') {
+            return res.status(409).json({ success: false, message: 'El job no está en ejecución.' });
+        }
+
+        let requestedName = '';
+        try {
+            requestedName = decodeURIComponent(req.get('x-sac-file-name') || '');
+        } catch (_) {
+            requestedName = '';
+        }
+        const safeNumber = sanitizeStorageSegment(job.numero_reclamo);
+        const safeName = sanitizeStorageSegment(requestedName || `${safeNumber}_${job.anio}.pdf`);
+        const storagePath = `sac/${job.anio}/${Date.now()}_${safeName}`;
+        const { error: uploadError } = await supabase.storage
+            .from('pdfs')
+            .upload(storagePath, req.body, { contentType: 'application/pdf', upsert: false });
+        if (uploadError) {
+            return res.status(500).json({ success: false, message: uploadError.message });
+        }
+
+        const patch = {
+            status: 'ready',
+            storage_path: storagePath,
+            file_name: safeName,
+            public_url: null,
+            finished_at: new Date().toISOString(),
+            error_message: null
+        };
+        await updateSacJob(job.id, patch);
+        return res.json({ success: true, job: slimSacJob({ ...job, ...patch }) });
+    }
+);
+
+app.post('/sac/worker/jobs/:jobId/fail', async (req, res) => {
+    if (!isSacAuthAllowed(req)) {
+        return res.status(401).json({ success: false, message: 'Worker SAC no autorizado.' });
+    }
+    const patch = {
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_message: String(req.body?.message || 'Error desconocido en worker SAC').slice(0, 2000)
+    };
+    await updateSacJob(req.params.jobId, patch);
+    return res.json({ success: true });
+});
+
 app.post('/sac/fetch-single-claim', async (req, res) => {
     if (!isSacAuthAllowed(req)) {
         return res.status(401).json({

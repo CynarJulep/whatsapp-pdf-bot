@@ -279,6 +279,12 @@ async function ensureLoggedIn(page, context, usuario, contrasena, remoteSave) {
     return;
   }
 
+  if (!usuario || !contrasena) {
+    throw new Error(
+      'La sesión SAC expiró. Configurá SAC_USER y SAC_PASSWORD en el worker local.'
+    );
+  }
+
   console.log('[SAC] Sesión expirada o inexistente. Iniciando login...');
   await performLogin(page, usuario, contrasena);
   await saveSessionState(context, remoteSave);

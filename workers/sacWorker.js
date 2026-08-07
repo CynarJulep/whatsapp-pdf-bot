@@ -1,85 +1,72 @@
 require('dotenv').config();
 
-const { createClient } = require('@supabase/supabase-js');
 const { runSacSingleClaimFetch } = require('../services/sacAutomation');
 
-const required = [
-  'SUPABASE_URL',
-  'SUPABASE_SERVICE_ROLE_KEY',
-  'SAC_USER',
-  'SAC_PASSWORD'
-];
+const backendUrl = (
+  process.env.SAC_BACKEND_URL || 'https://whatsapp-pdf-bot-backend.onrender.com'
+).replace(/\/$/, '');
+const token = process.env.SAC_AUTOMATION_TOKEN || '';
+const pollMs = Math.max(2000, Number(process.env.SAC_WORKER_POLL_MS || 5000));
+let stopping = false;
 
-const missing = required.filter((name) => !process.env[name]);
-if (missing.length > 0) {
-  console.error(`[SAC Worker] Faltan variables: ${missing.join(', ')}`);
+if (!token) {
+  console.error('[SAC Worker] Falta SAC_AUTOMATION_TOKEN.');
   process.exit(1);
 }
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-const pollMs = Math.max(2000, Number(process.env.SAC_WORKER_POLL_MS || 5000));
-const sessionId = process.env.SAC_SESSION_STATE_ID || 'default';
-let stopping = false;
-
-function sanitizeStorageSegment(value) {
-  return String(value || '')
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 120);
+async function api(path, options = {}) {
+  const response = await fetch(`${backendUrl}${path}`, {
+    ...options,
+    headers: {
+      'x-sac-automation-token': token,
+      ...(options.headers || {})
+    }
+  });
+  const contentType = response.headers.get('content-type') || '';
+  const body = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
+  if (!response.ok()) {
+    throw new Error(body?.message || `Backend SAC respondió HTTP ${response.status}`);
+  }
+  return body;
 }
 
 async function loadSessionState() {
-  const { data, error } = await supabase
-    .from('sac_session_state')
-    .select('state')
-    .eq('id', sessionId)
-    .maybeSingle();
-  if (error) throw new Error(`No se pudo leer la sesión SAC: ${error.message}`);
-  return data?.state || null;
+  const result = await api('/sac/worker/session');
+  return result.state || null;
 }
 
 async function saveSessionState(state) {
-  const { error } = await supabase
-    .from('sac_session_state')
-    .upsert({ id: sessionId, state, updated_at: new Date().toISOString() });
-  if (error) throw new Error(`No se pudo guardar la sesión SAC: ${error.message}`);
+  await api('/sac/worker/session', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ state })
+  });
 }
 
 async function claimNextJob() {
-  const { data: queued, error: findError } = await supabase
-    .from('sac_jobs')
-    .select('*')
-    .eq('status', 'queued')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (findError) throw new Error(`No se pudo consultar la cola: ${findError.message}`);
-  if (!queued) return null;
-
-  const { data: claimed, error: claimError } = await supabase
-    .from('sac_jobs')
-    .update({
-      status: 'running',
-      started_at: new Date().toISOString(),
-      finished_at: null,
-      error_message: null
-    })
-    .eq('id', queued.id)
-    .eq('status', 'queued')
-    .select('*')
-    .maybeSingle();
-
-  if (claimError) throw new Error(`No se pudo tomar el job: ${claimError.message}`);
-  return claimed || null;
+  const result = await api('/sac/worker/claim', { method: 'POST' });
+  return result.job || null;
 }
 
-async function finishJob(job, patch) {
-  const { error } = await supabase.from('sac_jobs').update(patch).eq('id', job.id);
-  if (error) throw new Error(`No se pudo actualizar el job ${job.id}: ${error.message}`);
+async function completeJob(job, pdfBuffer, suggestedFileName) {
+  return api(`/sac/worker/jobs/${encodeURIComponent(job.id)}/complete`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/pdf',
+      'x-sac-file-name': encodeURIComponent(suggestedFileName || `${job.numero_reclamo}_${job.anio}.pdf`)
+    },
+    body: pdfBuffer
+  });
+}
+
+async function failJob(job, message) {
+  await api(`/sac/worker/jobs/${encodeURIComponent(job.id)}/fail`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message })
+  });
 }
 
 async function processJob(job) {
@@ -88,60 +75,25 @@ async function processJob(job) {
     const { pdfBuffer, suggestedFileName } = await runSacSingleClaimFetch({
       numeroReclamo: job.numero_reclamo,
       anio: job.anio,
-      usuario: process.env.SAC_USER,
-      contrasena: process.env.SAC_PASSWORD,
+      usuario: process.env.SAC_USER || '',
+      contrasena: process.env.SAC_PASSWORD || '',
       loadSessionState,
       saveSessionState
     });
-
-    const safeNumber = sanitizeStorageSegment(job.numero_reclamo);
-    const safeName = sanitizeStorageSegment(
-      suggestedFileName || `${safeNumber}_${job.anio}.pdf`
-    );
-    const storagePath = `sac/${job.anio}/${Date.now()}_${safeName}`;
-    const { error: uploadError } = await supabase.storage
-      .from('pdfs')
-      .upload(storagePath, pdfBuffer, {
-        contentType: 'application/pdf',
-        upsert: false
-      });
-    if (uploadError) throw new Error(`No se pudo subir el PDF: ${uploadError.message}`);
-
-    await finishJob(job, {
-      status: 'ready',
-      storage_path: storagePath,
-      file_name: safeName,
-      public_url: null,
-      finished_at: new Date().toISOString(),
-      error_message: null
-    });
-    console.log(`[SAC Worker] Listo ${job.numero_reclamo}/${job.anio}: ${storagePath}`);
+    const result = await completeJob(job, pdfBuffer, suggestedFileName);
+    console.log(`[SAC Worker] Listo ${job.numero_reclamo}/${job.anio}: ${result.job?.storagePath}`);
   } catch (error) {
     const message = error?.message || 'Error desconocido en worker SAC';
-    await finishJob(job, {
-      status: 'failed',
-      finished_at: new Date().toISOString(),
-      error_message: message
+    await failJob(job, message).catch((reportError) => {
+      console.error(`[SAC Worker] No se pudo reportar el fallo: ${reportError.message}`);
     });
     console.error(`[SAC Worker] Falló ${job.id}: ${message}`);
   }
 }
 
-async function recoverInterruptedJobs() {
-  const { error } = await supabase
-    .from('sac_jobs')
-    .update({
-      status: 'queued',
-      started_at: null,
-      error_message: 'Reencolado tras reinicio del worker local.'
-    })
-    .eq('status', 'running');
-  if (error) throw new Error(`No se pudieron recuperar jobs interrumpidos: ${error.message}`);
-}
-
 async function main() {
-  console.log(`[SAC Worker] Iniciado. Poll cada ${pollMs}ms. Cerrá con Ctrl+C.`);
-  await recoverInterruptedJobs();
+  console.log(`[SAC Worker] Backend ${backendUrl}. Poll cada ${pollMs}ms. Cerrá con Ctrl+C.`);
+  await api('/sac/worker/recover', { method: 'POST' });
 
   while (!stopping) {
     const job = await claimNextJob();

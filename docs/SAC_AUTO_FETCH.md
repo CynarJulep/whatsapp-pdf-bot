@@ -107,8 +107,9 @@ Si Render/datacenter no puede loguear al SAC (bloqueo IP / headless):
 ```powershell
 npm install
 npm run playwright:install
-$env:SUPABASE_URL="..."
-$env:SUPABASE_SERVICE_ROLE_KEY="..."
+$env:SAC_BACKEND_URL="https://whatsapp-pdf-bot-backend.onrender.com"
+$env:SAC_AUTOMATION_TOKEN="el mismo token configurado en Render"
+# Solo hacen falta si la sesión guardada expiró:
 $env:SAC_USER="..."
 $env:SAC_PASSWORD="..."
 $env:SAC_HEADLESS="false"
