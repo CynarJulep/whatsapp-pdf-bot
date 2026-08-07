@@ -26,7 +26,7 @@ async function api(path, options = {}) {
   const body = contentType.includes('application/json')
     ? await response.json()
     : await response.text();
-  if (!response.ok()) {
+  if (!response.ok) {
     throw new Error(body?.message || `Backend SAC respondió HTTP ${response.status}`);
   }
   return body;

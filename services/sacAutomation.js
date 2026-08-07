@@ -280,9 +280,23 @@ async function ensureLoggedIn(page, context, usuario, contrasena, remoteSave) {
   }
 
   if (!usuario || !contrasena) {
-    throw new Error(
-      'La sesión SAC expiró. Configurá SAC_USER y SAC_PASSWORD en el worker local.'
-    );
+    if (SAC_HEADLESS) {
+      throw new Error(
+        'La sesión SAC expiró. Configurá SAC_USER y SAC_PASSWORD en el worker local.'
+      );
+    }
+
+    console.log('[SAC] Sesión expirada. Completá el login manual en la ventana de Chromium (5 min).');
+    const manualLoginDeadline = Date.now() + 5 * 60 * 1000;
+    while (Date.now() < manualLoginDeadline && await isLoginPage(page)) {
+      await page.waitForTimeout(1000);
+    }
+    if (await isLoginPage(page)) {
+      throw new Error('Tiempo agotado esperando el login manual en SAC.');
+    }
+    await saveSessionState(context, remoteSave);
+    await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
+    return;
   }
 
   console.log('[SAC] Sesión expirada o inexistente. Iniciando login...');
@@ -301,26 +315,34 @@ function buildClaimRegex(numeroReclamo, anio) {
   return new RegExp(`${numero}\\s*[-/]\\s*${year}`);
 }
 
-async function openClaimDetail(scope, numeroReclamo, anio) {
-  const activePage = typeof scope.page === 'function' ? scope.page() : scope;
+async function openClaimDetail(scopeOrScopes, numeroReclamo, anio) {
+  const scopes = Array.isArray(scopeOrScopes) ? scopeOrScopes : [scopeOrScopes];
   const claimRegex = buildClaimRegex(numeroReclamo, anio);
-  const directClaimLink = scope.locator('a', { hasText: claimRegex }).first();
 
-  if (await directClaimLink.count()) {
-    await Promise.all([
-      activePage.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
-      directClaimLink.click()
-    ]);
-    return;
-  }
+  for (const scope of scopes) {
+    try {
+      const activePage = typeof scope.page === 'function' ? scope.page() : scope;
+      const directClaimLink = scope.locator('a', { hasText: claimRegex }).first();
 
-  const fallbackLink = scope.locator('a[href*="/solicitud/ver.do"]').first();
-  if (await fallbackLink.count()) {
-    await Promise.all([
-      activePage.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
-      fallbackLink.click()
-    ]);
-    return;
+      if (await directClaimLink.count()) {
+        await Promise.all([
+          activePage.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
+          directClaimLink.click()
+        ]);
+        return activePage;
+      }
+
+      const fallbackLink = scope.locator('a[href*="/solicitud/ver.do"]').first();
+      if (await fallbackLink.count()) {
+        await Promise.all([
+          activePage.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
+          fallbackLink.click()
+        ]);
+        return activePage;
+      }
+    } catch (_) {
+      // A search page may close while SAC replaces it with the result window.
+    }
   }
 
   throw new Error(`No se encontró el reclamo ${numeroReclamo}/${anio} en los resultados de búsqueda`);
@@ -332,9 +354,10 @@ async function triggerPdfDownload({ page, scope, context, numeroReclamo, timeout
   if (await printButton.count()) {
     try {
       const popupPromise = page.waitForEvent('popup', { timeout: 12000 }).catch(() => null);
-      const downloadPromise = page.waitForEvent('download', { timeout: downloadWaitMs });
+      const downloadPromise = page.waitForEvent('download', { timeout: downloadWaitMs }).catch(() => null);
       await printButton.click({ timeout: 5000 });
       const download = await downloadPromise;
+      if (!download) throw new Error('El botón Imprimir no disparó una descarga directa');
       const popup = await popupPromise;
       if (popup) {
         await popup.close().catch(() => null);
@@ -367,9 +390,10 @@ async function triggerPdfDownload({ page, scope, context, numeroReclamo, timeout
     if (!count) continue;
 
     try {
-      const downloadPromise = page.waitForEvent('download', { timeout: downloadWaitMs });
+      const downloadPromise = page.waitForEvent('download', { timeout: downloadWaitMs }).catch(() => null);
       await locator.click({ timeout: 5000 });
       const download = await downloadPromise;
+      if (!download) continue;
       const diskPath = await download.path();
       if (!diskPath) continue;
       const buffer = await fs.readFile(diskPath);
@@ -413,10 +437,6 @@ async function runSacSingleClaimFetch({
   loadSessionState,
   saveSessionState: remoteSaveSessionState
 } = {}) {
-  if (!usuario || !contrasena) {
-    throw new Error('Faltan credenciales SAC_USER / SAC_PASSWORD en variables de entorno');
-  }
-
   let playwright;
   try {
     playwright = require('playwright');
@@ -430,33 +450,39 @@ async function runSacSingleClaimFetch({
   console.log(`[SAC] Inicio descarga reclamo ${numeroReclamo}/${anio}`);
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    // Free Render = 512MB. Chromium needs aggressive flags or it OOMs the instance.
+    // Free Render = 512MB. Do not use its aggressive single-process flags locally:
+    // they make headed Chromium unstable during SAC form navigation on Windows.
+    const lowMemoryCloud = process.env.RENDER === 'true' || process.env.SAC_LOW_MEMORY === 'true';
+    const chromiumArgs = lowMemoryCloud
+      ? [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-renderer-backgrounding',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-default-apps',
+          '--disable-sync',
+          '--disable-translate',
+          '--hide-scrollbars',
+          '--metrics-recording-only',
+          '--mute-audio',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--safebrowsing-disable-auto-update',
+          '--font-render-hinting=none',
+          '--single-process',
+          '--js-flags=--max-old-space-size=128'
+        ]
+      : ['--disable-dev-shm-usage'];
+
     const browser = await playwright.chromium.launch({
       headless: SAC_HEADLESS,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--disable-extensions',
-        '--disable-background-networking',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-default-apps',
-        '--disable-sync',
-        '--disable-translate',
-        '--hide-scrollbars',
-        '--metrics-recording-only',
-        '--mute-audio',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--safebrowsing-disable-auto-update',
-        '--font-render-hinting=none',
-        '--single-process',
-        '--js-flags=--max-old-space-size=128'
-      ]
+      args: chromiumArgs
     });
 
     try {
@@ -473,7 +499,7 @@ async function runSacSingleClaimFetch({
       }
 
       const context = await browser.newContext(contextOptions);
-      const page = await context.newPage();
+      let page = await context.newPage();
       page.setDefaultTimeout(SAC_TIMEOUT_MS);
 
       console.log(`[SAC] Etapa login (${numeroReclamo}/${anio})`);
@@ -595,7 +621,7 @@ async function runSacSingleClaimFetch({
         form = await resolveSearchForm();
       }
 
-      const { numeroInput, anioInput, buscarButton, activeScope } = form;
+      const { numeroInput, anioInput, buscarButton } = form;
       console.log(`[SAC] Formulario detectado (${numeroReclamo}/${anio})`);
 
       await maybeFill(numeroInput, numeroReclamo);
@@ -611,18 +637,27 @@ async function runSacSingleClaimFetch({
         console.warn('[SAC] No se detectó campo de año. Se continúa con valor por defecto del formulario.');
       }
 
-      await Promise.all([
-        page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
-        buscarButton.click()
-      ]);
+      const replacementPagePromise = context.waitForEvent('page', { timeout: 8000 }).catch(() => null);
+      await buscarButton.click();
+      const replacementPage = await replacementPagePromise;
+      if (replacementPage) {
+        await replacementPage.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
+      }
+      if (page.isClosed() || replacementPage) {
+        page = replacementPage || context.pages().filter((candidate) => !candidate.isClosed()).at(-1);
+      }
+      if (!page || page.isClosed()) {
+        throw new Error('SAC cerró la ventana de búsqueda sin abrir una ventana de resultados');
+      }
+      await page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
 
       console.log(`[SAC] Búsqueda enviada; abriendo resultado (${numeroReclamo}/${anio})`);
-      await openClaimDetail(activeScope, numeroReclamo, anio);
+      const detailPage = await openClaimDetail(getSearchScopes(page), numeroReclamo, anio);
 
       console.log(`[SAC] Resultado abierto; descargando PDF (${numeroReclamo}/${anio})`);
       const { pdfBuffer, suggestedFileName } = await triggerPdfDownload({
-        page,
-        scope: activeScope,
+        page: detailPage,
+        scope: detailPage.mainFrame(),
         context,
         numeroReclamo,
         timeoutMs: SAC_TIMEOUT_MS
