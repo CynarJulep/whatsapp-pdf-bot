@@ -547,6 +547,8 @@ const SAC_STATUS_LABELS = {
   failed: 'No se pudo obtener el reclamo'
 };
 
+const SAC_MUNI_LOGO = '/marca_muni/Marca_SF_2026_AzulVerticalSobreFondoVerde.png';
+
 const SAC_PROGRESS_STEPS = [
   { id: 'queued', label: 'Preparando' },
   { id: 'running', label: 'Consultando SAC' },
@@ -571,6 +573,13 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   const [busy, setBusy] = useState(false);
   const abortRef = useRef(null);
   const pollRef = useRef(null);
+  const numeroInputRef = useRef(null);
+
+  useEffect(() => {
+    if (busy) return undefined;
+    const timer = window.setTimeout(() => numeroInputRef.current?.focus(), 120);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
 
   const clearPolling = useCallback(() => {
     if (pollRef.current) {
@@ -733,6 +742,8 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
     0,
     SAC_PROGRESS_STEPS.findIndex((step) => step.id === jobStatus)
   );
+  const trimmedNumero = String(numero || '').trim();
+  const claimPreview = trimmedNumero ? `Reclamo ${trimmedNumero}/${anio}` : null;
 
   return (
     <form onSubmit={handleSearch} className="overflow-hidden">
@@ -749,9 +760,9 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
               </div>
             </div>
             <img
-              src="/santa-fe-capital.png"
+              src={SAC_MUNI_LOGO}
               alt="Municipalidad de Santa Fe"
-              className="h-9 w-auto object-contain"
+              className="h-11 w-auto object-contain"
             />
           </div>
 
@@ -801,15 +812,13 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
         </section>
       ) : (
         <section className="animate-in fade-in slide-in-from-bottom-2 duration-300 md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          <div className="flex flex-col justify-between gap-5 border-b border-border/60 bg-muted/20 px-5 py-5 sm:px-6 md:border-b-0 md:border-r md:px-7 md:py-7">
+          <div className="flex flex-col justify-between gap-5 border-b border-border/60 bg-muted/20 px-5 py-5 sm:px-6 md:border-b-0 md:border-r md:border-l-[3px] md:border-l-[#1a7a4a] md:px-7 md:py-7">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#003b73] p-2">
-                <img
-                  src="/santa-fe-capital.png"
-                  alt="Municipalidad de Santa Fe"
-                  className="h-full w-full object-contain"
-                />
-              </div>
+              <img
+                src={SAC_MUNI_LOGO}
+                alt="Municipalidad de Santa Fe"
+                className="h-14 w-auto shrink-0 object-contain"
+              />
               <div className="min-w-0">
                 <h3 className="text-base font-semibold tracking-tight text-foreground">Buscar reclamo en SAC</h3>
                 <p className="text-xs text-muted-foreground">Atención Ciudadana · PAI</p>
@@ -821,19 +830,29 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
           </div>
 
           <div className="flex flex-col gap-4 px-5 py-5 sm:px-6 md:px-7 md:py-7">
+            {claimPreview && (
+              <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3 py-2 text-xs text-muted-foreground">
+                <FileSearch className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <span>
+                  Vas a buscar <span className="font-medium text-foreground">{claimPreview}</span>
+                </span>
+              </div>
+            )}
+
             <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_7.5rem]">
               <Field data-disabled={!connected} data-invalid={!!error && !numero.trim()}>
                 <FieldLabel htmlFor="sac-numero">Número de reclamo</FieldLabel>
                 <Input
+                  ref={numeroInputRef}
                   id="sac-numero"
                   inputMode="numeric"
+                  enterKeyHint="search"
                   placeholder="Ej. 63864"
                   value={numero}
                   disabled={!connected}
                   aria-invalid={!!error && !numero.trim()}
                   onChange={(e) => setNumero(e.target.value.replace(/[^0-9-]/g, ''))}
                   autoComplete="off"
-                  autoFocus
                   className="h-11"
                 />
                 {!!error && !numero.trim() && <FieldError>Ingresá el número de reclamo.</FieldError>}
@@ -3226,7 +3245,7 @@ export default function App() {
 
         {/* ── Buscador SAC dedicado ── */}
         <Dialog open={sacSearchOpen} onOpenChange={setSacSearchOpen}>
-          <DialogContent className="max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <DialogContent keyboardAware={sacSearchOpen} className="max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden p-0 max-md:overflow-y-auto sm:max-w-2xl">
             <SacClaimSearch
               enabled={!!botStatus.sacEnabled}
               connected={!!botStatus.connected}
