@@ -68,7 +68,7 @@ async function waitForFirst(page, selectors, timeout = 15000) {
         // Frame/page may be navigating; retry all selectors until the global deadline.
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`No se encontró ningún selector válido: ${selectors.join(', ')}`);
 }
@@ -107,7 +107,7 @@ async function waitForFirstInScopes(scopes, selectors, timeout = 15000) {
         }
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(buildDetailedSelectorError(selectors, scopes));
 }
@@ -212,9 +212,7 @@ async function findControlByHints(scopes, options) {
 
 async function maybeFill(locator, value) {
   if (!locator) return;
-  await locator.click({ timeout: 5000 });
-  await locator.fill('');
-  await locator.fill(String(value));
+  await locator.fill(String(value), { timeout: 5000 });
 }
 
 async function isLoginPage(page) {
@@ -267,7 +265,7 @@ async function performLogin(page, usuario, contrasena) {
   ]);
 
   await Promise.all([
-    page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
+    page.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null),
     loginButton.click()
   ]);
 }
@@ -521,6 +519,13 @@ async function runSacSingleClaimFetch({
       }
 
       const context = await browser.newContext(contextOptions);
+      await context.route('**/*', (route) => {
+        const type = route.request().resourceType();
+        if (type === 'image' || type === 'media' || type === 'font') {
+          return route.abort();
+        }
+        return route.continue();
+      });
       let page = await context.newPage();
       page.setDefaultTimeout(SAC_TIMEOUT_MS);
 
@@ -639,7 +644,6 @@ async function runSacSingleClaimFetch({
         await performLogin(page, usuario, contrasena);
         await saveSessionState(context, remoteSaveSessionState);
         await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
-        await page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
         form = await resolveSearchForm();
       }
 
@@ -671,10 +675,13 @@ async function runSacSingleClaimFetch({
       if (!page || page.isClosed()) {
         throw new Error('SAC cerró la ventana de búsqueda sin abrir una ventana de resultados');
       }
-      await page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
+      await page.waitForLoadState('domcontentloaded', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
 
       console.log(`[SAC] Búsqueda enviada; abriendo resultado (${numeroReclamo}/${anio})`);
-      const detailPage = await openClaimDetail(getSearchScopes(page), numeroReclamo, anio);
+      const detailUrl = page.url();
+      const detailPage = /\/solicitud\/ver\.do/i.test(detailUrl)
+        ? page
+        : await openClaimDetail(getSearchScopes(page), numeroReclamo, anio);
 
       console.log(`[SAC] Resultado abierto; descargando PDF (${numeroReclamo}/${anio})`);
       const { pdfBuffer, suggestedFileName } = await triggerPdfDownload({

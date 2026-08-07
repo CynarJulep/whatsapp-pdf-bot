@@ -29,6 +29,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Spinner } from '@/components/ui/spinner';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
 
 import SubtypesCatalogDialog from '@/components/SubtypesCatalogDialog';
 
@@ -549,6 +552,13 @@ const SAC_STATUS_LABELS = {
 
 function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   const currentYear = new Date().getFullYear();
+  const yearOptions = useMemo(() => {
+    const years = [];
+    for (let year = currentYear; year >= currentYear - 12; year -= 1) {
+      years.push(year);
+    }
+    return years;
+  }, [currentYear]);
   const [numero, setNumero] = useState('');
   const [anio, setAnio] = useState(String(currentYear));
   const [jobStatus, setJobStatus] = useState('idle');
@@ -605,7 +615,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
       }
 
       await new Promise((resolve, reject) => {
-        pollRef.current = setTimeout(resolve, 1000);
+        pollRef.current = setTimeout(resolve, 750);
         signal.addEventListener('abort', () => {
           clearTimeout(pollRef.current);
           reject(new DOMException('Aborted', 'AbortError'));
@@ -708,73 +718,118 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
   if (!enabled) return null;
 
   return (
-    <form onSubmit={handleSearch} className="flex flex-col gap-4">
-      <FieldGroup className="grid grid-cols-1 items-end sm:grid-cols-[1fr_9rem_auto]">
-        <Field data-disabled={busy || !connected} data-invalid={!!error && !numero.trim()}>
-          <FieldLabel htmlFor="sac-numero">Número de reclamo</FieldLabel>
-          <Input
-            id="sac-numero"
-            inputMode="numeric"
-            placeholder="Ej. 63864"
-            value={numero}
-            disabled={busy || !connected}
-            aria-invalid={!!error && !numero.trim()}
-            onChange={(e) => setNumero(e.target.value.replace(/[^0-9-]/g, ''))}
-            autoComplete="off"
-            autoFocus
-          />
-          {!!error && !numero.trim() && <FieldError>Ingresá el número de reclamo.</FieldError>}
-        </Field>
+    <form onSubmit={handleSearch} className="flex flex-col md:flex-row md:items-stretch">
+      <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-5 sm:px-6 md:w-[42%] md:border-b-0 md:border-r md:py-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/30">
+            <FileSearch className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold tracking-tight text-foreground">
+              Buscar reclamo en SAC
+            </h3>
+            <p className="text-xs text-muted-foreground md:hidden">
+              Ingresá el número y año del reclamo.
+            </p>
+          </div>
+        </div>
+        <p className="hidden text-sm leading-relaxed text-muted-foreground md:block">
+          Ingresá el número y año. El PDF se descargará y abrirá en la vista previa antes de derivarlo.
+        </p>
+        {busy && (
+          <div className="hidden md:block">
+            <Alert className="border-border/60 bg-muted/20">
+              <Spinner />
+              <AlertDescription className="flex flex-col gap-2">
+                <span className="flex items-center justify-between gap-3">
+                  <span>{statusText || 'Procesando…'}</span>
+                  <span className="tabular-nums text-xs">{searchProgress}%</span>
+                </span>
+                <Progress value={searchProgress} aria-label="Progreso de búsqueda del reclamo" />
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+      </div>
 
-        <Field data-disabled={busy || !connected}>
-          <FieldLabel htmlFor="sac-anio">Año</FieldLabel>
-          <Input
-            id="sac-anio"
-            inputMode="numeric"
-            placeholder={String(currentYear)}
-            value={anio}
-            disabled={busy || !connected}
-            onChange={(e) => setAnio(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-            autoComplete="off"
-          />
-        </Field>
+      <div className="flex flex-1 flex-col gap-4 px-5 py-5 sm:px-6 md:py-6">
+        <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_7.5rem]">
+          <Field data-disabled={busy || !connected} data-invalid={!!error && !numero.trim()}>
+            <FieldLabel htmlFor="sac-numero">Número de reclamo</FieldLabel>
+            <Input
+              id="sac-numero"
+              inputMode="numeric"
+              placeholder="Ej. 63864"
+              value={numero}
+              disabled={busy || !connected}
+              aria-invalid={!!error && !numero.trim()}
+              onChange={(e) => setNumero(e.target.value.replace(/[^0-9-]/g, ''))}
+              autoComplete="off"
+              autoFocus
+              className="h-10"
+            />
+            {!!error && !numero.trim() && <FieldError>Ingresá el número de reclamo.</FieldError>}
+          </Field>
 
-        <Field className="sm:w-auto">
-          <Button type="submit" disabled={busy || !connected || !numero.trim()}>
-            {busy ? <Spinner data-icon="inline-start" /> : <Search data-icon="inline-start" />}
-            {busy ? 'Buscando…' : 'Buscar PDF'}
-          </Button>
-        </Field>
-      </FieldGroup>
+          <Field data-disabled={busy || !connected}>
+            <FieldLabel htmlFor="sac-anio">Año</FieldLabel>
+            <Select
+              value={anio}
+              onValueChange={setAnio}
+              disabled={busy || !connected}
+            >
+              <SelectTrigger id="sac-anio" className="h-10 w-full">
+                <SelectValue placeholder={String(currentYear)} />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {yearOptions.map((year) => (
+                  <SelectItem key={year} value={String(year)}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </FieldGroup>
 
-      {busy && (
-        <Alert>
-          <Spinner />
-          <AlertDescription className="flex flex-col gap-2">
-            <span className="flex items-center justify-between gap-3">
-              <span>{statusText || 'Procesando…'}</span>
-              <span className="tabular-nums">{searchProgress}%</span>
-            </span>
-            <Progress value={searchProgress} aria-label="Progreso de búsqueda del reclamo" />
-          </AlertDescription>
-        </Alert>
-      )}
+        <Button
+          type="submit"
+          disabled={busy || !connected || !numero.trim()}
+          className="h-10 w-full sm:w-auto sm:self-start"
+        >
+          {busy ? <Spinner data-icon="inline-start" /> : <Search data-icon="inline-start" />}
+          {busy ? 'Buscando…' : 'Buscar PDF'}
+        </Button>
 
-      {error && !busy && (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+        {busy && (
+          <Alert className="md:hidden">
+            <Spinner />
+            <AlertDescription className="flex flex-col gap-2">
+              <span className="flex items-center justify-between gap-3">
+                <span>{statusText || 'Procesando…'}</span>
+                <span className="tabular-nums">{searchProgress}%</span>
+              </span>
+              <Progress value={searchProgress} aria-label="Progreso de búsqueda del reclamo" />
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {!connected && (
-        <Alert>
-          <WifiOff />
-          <AlertDescription>
-            Conectá WhatsApp desde Configuración para habilitar la búsqueda.
-          </AlertDescription>
-        </Alert>
-      )}
+        {error && !busy && (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {!connected && (
+          <Alert>
+            <WifiOff />
+            <AlertDescription>
+              Conectá WhatsApp desde Configuración para habilitar la búsqueda.
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
     </form>
   );
 }
@@ -3115,22 +3170,7 @@ export default function App() {
 
         {/* ── Buscador SAC dedicado ── */}
         <Dialog open={sacSearchOpen} onOpenChange={setSacSearchOpen}>
-          <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
-            <DialogHeader>
-              <div className="flex flex-col items-start gap-2 pr-8 sm:flex-row sm:items-center sm:justify-between">
-                <DialogTitle className="flex items-center gap-2">
-                  <FileSearch />
-                  Buscar reclamo en SAC
-                </DialogTitle>
-                <Badge variant={botStatus.connected ? 'secondary' : 'outline'}>
-                  {botStatus.connected ? 'Disponible' : 'WhatsApp desconectado'}
-                </Badge>
-              </div>
-              <DialogDescription>
-                Ingresá el número y año. El PDF se descargará y abrirá en la vista previa antes de derivarlo.
-              </DialogDescription>
-            </DialogHeader>
-
+          <DialogContent className="max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl">
             <SacClaimSearch
               enabled={!!botStatus.sacEnabled}
               connected={!!botStatus.connected}

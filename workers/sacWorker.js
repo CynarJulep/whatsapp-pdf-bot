@@ -10,7 +10,7 @@ const backendUrl = (
   process.env.SAC_BACKEND_URL || 'https://whatsapp-pdf-bot-backend.onrender.com'
 ).replace(/\/$/, '');
 const token = process.env.SAC_AUTOMATION_TOKEN || '';
-const pollMs = Math.max(2000, Number(process.env.SAC_WORKER_POLL_MS || 5000));
+const pollMs = Math.max(2000, Number(process.env.SAC_WORKER_POLL_MS || 3000));
 let stopping = false;
 
 if (!token) {
