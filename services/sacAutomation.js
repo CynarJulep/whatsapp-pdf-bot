@@ -400,15 +400,40 @@ async function runSacSingleClaimFetch({
   console.log(`[SAC] Inicio descarga reclamo ${numeroReclamo}/${anio}`);
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    // Free Render = 512MB. Chromium needs aggressive flags or it OOMs the instance.
     const browser = await playwright.chromium.launch({
       headless: SAC_HEADLESS,
-      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-default-apps',
+        '--disable-sync',
+        '--disable-translate',
+        '--hide-scrollbars',
+        '--metrics-recording-only',
+        '--mute-audio',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--safebrowsing-disable-auto-update',
+        '--font-render-hinting=none',
+        '--single-process',
+        '--js-flags=--max-old-space-size=128'
+      ]
     });
 
     try {
       const contextOptions = {
         acceptDownloads: true,
-        viewport: { width: 1440, height: 900 }
+        viewport: { width: 1024, height: 720 },
+        reducedMotion: 'reduce'
       };
 
       const hasLocalSession = attempt === 1 && await prepareLocalSessionState(loadSessionState);
