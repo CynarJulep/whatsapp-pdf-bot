@@ -119,6 +119,8 @@ const SAC_AUTOMATION_TOKEN = process.env.SAC_AUTOMATION_TOKEN || '';
 const SAC_FEATURE_ENABLED = process.env.SAC_FEATURE_ENABLED === 'true';
 const SAC_MAX_CONCURRENT_JOBS = Math.max(1, Number(process.env.SAC_MAX_CONCURRENT_JOBS || 1));
 const SAC_JOB_STALE_MS = Math.max(60000, Number(process.env.SAC_JOB_STALE_MS || 8 * 60 * 1000));
+const SAC_SIGNED_URL_TTL_SEC = Math.max(60, Number(process.env.SAC_SIGNED_URL_TTL_SEC || 15 * 60));
+const SAC_SESSION_STATE_ID = process.env.SAC_SESSION_STATE_ID || 'default';
 let runSacSingleClaimFetch = null;
 let waVersionProactiveTimer = null;
 let coldStartVersionForced = false;
@@ -719,13 +721,23 @@ function sanitizeStorageSegment(value) {
         .slice(0, 100);
 }
 
+function currentClaimYear() {
+    return new Date().getFullYear();
+}
+
 function isSacAuthAllowed(req) {
-    if (!SAC_AUTOMATION_TOKEN) return true;
+    // Fail closed in production when the feature is on but no token was configured.
+    if (!SAC_AUTOMATION_TOKEN) {
+        if (SAC_FEATURE_ENABLED && process.env.NODE_ENV === 'production') {
+            return false;
+        }
+        return true;
+    }
     const token = req.headers['x-sac-automation-token'];
     return typeof token === 'string' && token === SAC_AUTOMATION_TOKEN;
 }
 
-function slimSacJob(job) {
+function slimSacJob(job, extras = {}) {
     if (!job) return null;
     return {
         id: job.id,
@@ -735,11 +747,53 @@ function slimSacJob(job) {
         errorMessage: job.error_message || null,
         storagePath: job.storage_path || null,
         fileName: job.file_name || null,
-        publicUrl: job.public_url || null,
+        // Prefer signed URL; keep publicUrl only as legacy fallback for old rows.
+        signedUrl: extras.signedUrl || null,
+        publicUrl: extras.signedUrl ? null : (job.public_url || null),
         createdAt: job.created_at || null,
         startedAt: job.started_at || null,
         finishedAt: job.finished_at || null
     };
+}
+
+async function createSignedUrlForPath(storagePath) {
+    if (!storagePath) return null;
+    const { data, error } = await supabase.storage
+        .from('pdfs')
+        .createSignedUrl(storagePath, SAC_SIGNED_URL_TTL_SEC);
+    if (error) {
+        console.warn('[SAC] No se pudo firmar URL del PDF:', error.message);
+        return null;
+    }
+    return data?.signedUrl || null;
+}
+
+async function loadSacSessionState() {
+    const { data, error } = await supabase
+        .from('sac_session_state')
+        .select('state')
+        .eq('id', SAC_SESSION_STATE_ID)
+        .maybeSingle();
+    if (error) {
+        // Table may not exist yet — non-fatal.
+        console.warn('[SAC] No se pudo leer sac_session_state:', error.message);
+        return null;
+    }
+    return data?.state || null;
+}
+
+async function saveSacSessionState(state) {
+    if (!state || typeof state !== 'object') return;
+    const { error } = await supabase
+        .from('sac_session_state')
+        .upsert({
+            id: SAC_SESSION_STATE_ID,
+            state,
+            updated_at: new Date().toISOString()
+        });
+    if (error) {
+        console.warn('[SAC] No se pudo guardar sac_session_state:', error.message);
+    }
 }
 
 async function insertSacJob(job) {
@@ -780,9 +834,10 @@ function getSacJobReferenceTime(job) {
     return Date.now();
 }
 
-async function markSacJobAsStale(job) {
+async function markSacJobAsStale(job, reason) {
     if (!job) return;
-    const message = `Job SAC vencido por timeout (${Math.round(SAC_JOB_STALE_MS / 60000)} min). Se reinicia automáticamente.`;
+    const message = reason
+        || `Job SAC vencido por timeout (${Math.round(SAC_JOB_STALE_MS / 60000)} min).`;
     const patch = {
         status: 'failed',
         finished_at: new Date().toISOString(),
@@ -790,7 +845,7 @@ async function markSacJobAsStale(job) {
     };
     await updateSacJob(job.id, patch);
     sacJobsCache.set(job.id, { ...job, ...patch });
-    console.warn(`[SAC] Job ${job.id} marcado como stale. ${message}`);
+    console.warn(`[SAC] Job ${job.id} marcado como failed. ${message}`);
 }
 
 async function normalizeRunningSacJob(job) {
@@ -833,6 +888,7 @@ async function findRunningSacJob(numeroReclamo, anio) {
 }
 
 function enqueueSacJob(jobId) {
+    if (sacJobQueue.includes(jobId)) return;
     sacJobQueue.push(jobId);
     void processSacQueue();
 }
@@ -856,9 +912,11 @@ async function processSacQueue() {
 async function processSacJob(jobId) {
     const current = await getSacJobById(jobId);
     if (!current) return;
+    if (current.status === 'ready' || current.status === 'failed') return;
 
     const startedAt = new Date().toISOString();
     await updateSacJob(jobId, { status: 'running', started_at: startedAt, error_message: null });
+    console.log(`[SAC] Job ${jobId} running (${current.numero_reclamo}/${current.anio})`);
 
     try {
         if (!SAC_FEATURE_ENABLED) {
@@ -870,7 +928,9 @@ async function processSacJob(jobId) {
             numeroReclamo: current.numero_reclamo,
             anio: current.anio,
             usuario: SAC_USER,
-            contrasena: SAC_PASSWORD
+            contrasena: SAC_PASSWORD,
+            loadSessionState: loadSacSessionState,
+            saveSessionState: saveSacSessionState
         });
 
         const safeNumber = sanitizeStorageSegment(current.numero_reclamo);
@@ -888,20 +948,74 @@ async function processSacJob(jobId) {
             throw new Error(`No se pudo subir el PDF a Storage: ${uploadError.message}`);
         }
 
-        const { data: publicData } = supabase.storage.from('pdfs').getPublicUrl(storagePath);
         await updateSacJob(jobId, {
             status: 'ready',
             finished_at: new Date().toISOString(),
             storage_path: storagePath,
             file_name: suggestedFileName || `${safeNumber}_${current.anio}.pdf`,
-            public_url: publicData?.publicUrl || null
+            // Avoid long-lived public URLs for reclamos; signed URL is minted on read.
+            public_url: null
         });
+        console.log(`[SAC] Job ${jobId} ready → ${storagePath}`);
     } catch (error) {
+        console.error(`[SAC] Job ${jobId} failed:`, error?.message || error);
         await updateSacJob(jobId, {
             status: 'failed',
             finished_at: new Date().toISOString(),
             error_message: error?.message || 'Error desconocido al descargar reclamo SAC'
         });
+    }
+}
+
+/**
+ * After process restart: mark interrupted "running" jobs as failed and re-enqueue
+ * anything still "queued" so the worker recovers from DB instead of memory-only queue.
+ */
+async function recoverSacJobsOnStartup() {
+    if (!SAC_FEATURE_ENABLED) return;
+
+    try {
+        const { data: running, error: runningError } = await supabase
+            .from('sac_jobs')
+            .select('*')
+            .eq('status', 'running')
+            .order('created_at', { ascending: true });
+
+        if (runningError) {
+            console.warn('[SAC] No se pudieron recuperar jobs running:', runningError.message);
+        } else {
+            for (const job of running || []) {
+                sacJobsCache.set(job.id, job);
+                await markSacJobAsStale(
+                    job,
+                    'Job interrumpido por reinicio del servidor. Volvé a buscar el reclamo.'
+                );
+            }
+        }
+
+        const { data: queued, error: queuedError } = await supabase
+            .from('sac_jobs')
+            .select('*')
+            .eq('status', 'queued')
+            .order('created_at', { ascending: true });
+
+        if (queuedError) {
+            console.warn('[SAC] No se pudieron recuperar jobs queued:', queuedError.message);
+            return;
+        }
+
+        for (const job of queued || []) {
+            const normalized = await normalizeRunningSacJob(job);
+            if (!normalized) continue;
+            sacJobsCache.set(normalized.id, normalized);
+            enqueueSacJob(normalized.id);
+        }
+
+        if ((queued || []).length > 0) {
+            console.log(`[SAC] Recuperados ${(queued || []).length} job(s) en cola tras reinicio.`);
+        }
+    } catch (err) {
+        console.warn('[SAC] recoverSacJobsOnStartup falló:', err.message || err);
     }
 }
 
@@ -923,7 +1037,7 @@ app.post('/sac/fetch-single-claim', async (req, res) => {
 
     const numeroReclamo = sanitizeClaimValue(req.body?.numeroReclamo);
     const rawAnio = req.body?.anio;
-    const anio = Number(rawAnio || 2026);
+    const anio = Number(rawAnio == null || rawAnio === '' ? currentClaimYear() : rawAnio);
 
     if (!numeroReclamo) {
         return res.status(400).json({
@@ -935,7 +1049,7 @@ app.post('/sac/fetch-single-claim', async (req, res) => {
     if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
         return res.status(400).json({
             success: false,
-            message: 'El campo "anio" debe ser un número válido.'
+            message: 'El campo "anio" debe ser un número válido (2000-2100).'
         });
     }
 
@@ -1005,9 +1119,15 @@ app.get('/sac/jobs/:jobId', async (req, res) => {
                 message: 'Job SAC no encontrado.'
             });
         }
+
+        let signedUrl = null;
+        if (job.status === 'ready' && job.storage_path) {
+            signedUrl = await createSignedUrlForPath(job.storage_path);
+        }
+
         return res.status(200).json({
             success: true,
-            job: slimSacJob(job)
+            job: slimSacJob(job, { signedUrl })
         });
     } catch (error) {
         return res.status(500).json({
@@ -1528,10 +1648,15 @@ setInterval(() => {
 }, RECONNECT_WATCHDOG_MS);
 
 // Start Express Server & WhatsApp Connection
-app.listen(PORT, () => {
-    console.log(`[Server] Webhook server running on port: ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Server] Webhook server running on 0.0.0.0:${PORT}`);
     if (!SAC_FEATURE_ENABLED) {
         console.log('[SAC] Feature flag desactivada. Endpoints /sac en modo deshabilitado.');
+    } else if (!SAC_AUTOMATION_TOKEN && process.env.NODE_ENV === 'production') {
+        console.warn('[SAC] FEATURE ON sin SAC_AUTOMATION_TOKEN en producción — endpoints rechazan peticiones.');
+    } else {
+        console.log('[SAC] Feature habilitada.');
+        void recoverSacJobsOnStartup();
     }
     connectToWhatsApp();
 });

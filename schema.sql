@@ -178,3 +178,12 @@ ON public.sac_jobs FOR SELECT
 TO anon, authenticated
 USING (true);
 
+-- 8. Sesión Playwright SAC (solo service_role; sin políticas públicas)
+CREATE TABLE IF NOT EXISTS public.sac_session_state (
+    id TEXT PRIMARY KEY DEFAULT 'default',
+    state JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE public.sac_session_state ENABLE ROW LEVEL SECURITY;
+

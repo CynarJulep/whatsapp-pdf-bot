@@ -7,7 +7,7 @@ import {
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
   Check, Plus, Loader2, Zap, MapPin, ArrowRight,
   History, Clock, ChevronDown, ChevronUp, HelpCircle, BookOpen,
-  Copy
+  Copy, Hash
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -430,12 +430,12 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
       description: botStatus.pairingBlocked
         ? "El servidor está actualizando la versión de WhatsApp. Abrí Configuración → Estado y usá «Borrar sesión y nuevo QR»."
         : "Recuperando credenciales y conectando. Si tarda más de un minuto, abrí Configuración → Estado.",
-      className: "border-primary/30 bg-primary/[0.02] cursor-wait animate-pulse",
+      className: "border-primary/30 bg-primary/[0.02] cursor-wait",
       showButton: true
     };
   } else if (!connected) {
     content = {
-      icon: <WifiOff className="w-10 h-10 text-red-500 animate-pulse" />,
+      icon: <WifiOff className="w-10 h-10 text-red-500" />,
       title: "WhatsApp Desconectado",
       description: "Para poder enviar reclamos primero debés vincular la sesión de WhatsApp del teléfono de PAI.",
       className: "border-red-200 bg-red-500/[0.02] opacity-70 hover:border-red-300",
@@ -444,10 +444,10 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
   } else {
     content = {
       icon: <UploadCloud className="w-10 h-10 text-primary" />,
-      title: active ? 'Soltá para cargar' : 'Arrastrá acá para enviar por PAI el reclamo...',
-      description: "o tocá para buscar en tus archivos",
+      title: active ? 'Soltá para cargar' : 'O cargá el PDF manualmente',
+      description: "Arrastrá acá o tocá para buscar en tus archivos",
       className: active 
-        ? 'dropzone-active border-primary bg-primary/5 scale-[1.01]' 
+        ? 'border-primary bg-primary/5 scale-[1.01]' 
         : 'border-border hover:border-primary/50 hover:bg-muted/40'
     };
   }
@@ -471,18 +471,11 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
             onOpenConfig();
           }
         }}
-        className={`dropzone-idle w-full max-w-4xl border-2 border-dashed rounded-3xl cursor-pointer
-          flex flex-col items-center justify-center gap-6 py-16 px-8
-          transition-all duration-300 select-none relative overflow-hidden
+        className={`w-full max-w-4xl border border-dashed rounded-2xl cursor-pointer
+          flex flex-col items-center justify-center gap-4 py-12 px-8
+          transition-all duration-200 select-none relative overflow-hidden
           ${content.className}`}
       >
-        {isInteractable && (
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none z-0">
-            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-1" />
-            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-2" />
-            <div className="absolute w-[125%] aspect-square rounded-full bg-primary/[0.04] border border-primary/25 animate-radar-3" />
-          </div>
-        )}
         <input 
           ref={inputRef} 
           type="file" 
@@ -491,38 +484,268 @@ function DropZone({ onFile, botStatus, onOpenConfig }) {
           disabled={!isInteractable}
           onChange={(e) => e.target.files?.[0] && validate(e.target.files[0])} 
         />
-        <div className={`relative z-10 transition-all duration-300
-          ${isInteractable ? 'animate-float text-primary' : 'text-muted-foreground'}
-          ${!isInteractable && !checking && !connecting ? 'text-red-500 scale-105' : ''}
-          ${active ? 'scale-115 text-primary' : ''}`}
+        <div className={`relative z-10 transition-all duration-200
+          ${isInteractable ? 'text-primary' : 'text-muted-foreground'}
+          ${!isInteractable && !checking && !connecting ? 'text-red-500' : ''}
+          ${active ? 'scale-105 text-primary' : ''}`}
         >
-          {React.cloneElement(content.icon, { className: "w-16 h-16 transition-all duration-300" })}
+          {React.cloneElement(content.icon, { className: "w-12 h-12 transition-all duration-200" })}
         </div>
         <div className="text-center space-y-2 relative z-10">
-          <p className={`text-xl sm:text-2xl font-bold ${
-            !isInteractable && !checking && !connecting ? 'text-red-600 dark:text-red-400 font-black' : 'text-foreground'
+          <p className={`text-lg sm:text-xl font-semibold ${
+            !isInteractable && !checking && !connecting ? 'text-red-600 dark:text-red-400' : 'text-foreground'
           }`}>
             {content.title}
           </p>
-          <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto">
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
             {content.description}
           </p>
           {content.showButton && (
-            <div className="pt-4">
+            <div className="pt-3">
               <Button 
                 onClick={(e) => { e.stopPropagation(); onOpenConfig(); }}
-                className="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md gap-2"
+                className="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2 rounded-lg gap-2"
               >
                 Vincular WhatsApp <ArrowRight className="w-4 h-4" />
               </Button>
             </div>
           )}
           {isInteractable && (
-            <p className="text-xs text-muted-foreground/50 pt-2">Solo PDF · Máximo 50 MB</p>
+            <p className="text-xs text-muted-foreground/70 pt-1">Solo PDF · Máximo 50 MB</p>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+const SAC_STATUS_LABELS = {
+  idle: '',
+  queued: 'En cola…',
+  running: 'Buscando en SAC y descargando PDF…',
+  ready: 'PDF listo',
+  failed: 'No se pudo obtener el reclamo'
+};
+
+function SacClaimSearch({ enabled, connected, onReady, showToast }) {
+  const currentYear = new Date().getFullYear();
+  const [numero, setNumero] = useState('');
+  const [anio, setAnio] = useState(String(currentYear));
+  const [jobStatus, setJobStatus] = useState('idle');
+  const [statusText, setStatusText] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const abortRef = useRef(null);
+  const pollRef = useRef(null);
+
+  const clearPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearPolling(), [clearPolling]);
+
+  const pollJob = useCallback(async (jobId, signal) => {
+    const res = await fetch(`${backendUrl}/sac/jobs/${encodeURIComponent(jobId)}`, { signal });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || 'No se pudo consultar el estado de la búsqueda.');
+    }
+    return data.job;
+  }, []);
+
+  const waitForJob = useCallback(async (jobId, signal) => {
+    const started = Date.now();
+    const maxMs = 8 * 60 * 1000;
+
+    while (Date.now() - started < maxMs) {
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      const job = await pollJob(jobId, signal);
+      setJobStatus(job.status || 'running');
+      setStatusText(SAC_STATUS_LABELS[job.status] || 'Procesando…');
+
+      if (job.status === 'ready') {
+        return job;
+      }
+      if (job.status === 'failed') {
+        throw new Error(job.errorMessage || 'La búsqueda SAC falló.');
+      }
+
+      await new Promise((resolve, reject) => {
+        pollRef.current = setTimeout(resolve, 2500);
+        signal.addEventListener('abort', () => {
+          clearTimeout(pollRef.current);
+          reject(new DOMException('Aborted', 'AbortError'));
+        }, { once: true });
+      });
+    }
+    throw new Error('La búsqueda SAC tardó demasiado. Probá de nuevo o cargá el PDF manualmente.');
+  }, [pollJob]);
+
+  const handleSearch = async (e) => {
+    e?.preventDefault?.();
+    if (!enabled) {
+      showToast?.('La búsqueda SAC no está habilitada en el servidor.', 'error');
+      return;
+    }
+    if (!connected) {
+      showToast?.('Conectá WhatsApp antes de buscar un reclamo.', 'error');
+      return;
+    }
+
+    const numeroReclamo = String(numero || '').trim().replace(/[^0-9-]/g, '');
+    const year = Number(anio);
+    if (!numeroReclamo) {
+      setError('Ingresá el número de reclamo.');
+      return;
+    }
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      setError('El año debe ser un número válido.');
+      return;
+    }
+
+    clearPolling();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setBusy(true);
+    setError('');
+    setJobStatus('queued');
+    setStatusText(SAC_STATUS_LABELS.queued);
+
+    try {
+      const createRes = await fetch(`${backendUrl}/sac/fetch-single-claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numeroReclamo, anio: year }),
+        signal: controller.signal
+      });
+      const createData = await createRes.json().catch(() => ({}));
+
+      if (createRes.status === 410) {
+        throw new Error(createData.message || 'Búsqueda SAC deshabilitada.');
+      }
+      if (!createRes.ok || !createData.success || !createData.job?.id) {
+        throw new Error(createData.message || 'No se pudo iniciar la búsqueda.');
+      }
+
+      setJobStatus(createData.job.status || 'queued');
+      const readyJob = await waitForJob(createData.job.id, controller.signal);
+
+      const downloadUrl = readyJob.signedUrl || readyJob.publicUrl;
+      if (!downloadUrl) {
+        throw new Error('El PDF está listo pero no hay URL de descarga. Reintentá.');
+      }
+
+      setStatusText('Descargando PDF…');
+      const pdfRes = await fetch(downloadUrl, { signal: controller.signal });
+      if (!pdfRes.ok) throw new Error('No se pudo descargar el PDF desde Storage.');
+      const blob = await pdfRes.blob();
+      const fileName = readyJob.fileName || `reclamo_${numeroReclamo}_${year}.pdf`;
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+
+      setJobStatus('ready');
+      setStatusText(SAC_STATUS_LABELS.ready);
+      onReady?.(file, {
+        storagePath: readyJob.storagePath || null,
+        jobId: readyJob.id,
+        numeroReclamo,
+        anio: year
+      });
+      showToast?.(`Reclamo ${numeroReclamo}/${year} listo`, 'success');
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      const message = err?.message || 'Error al buscar el reclamo en SAC.';
+      setError(message);
+      setJobStatus('failed');
+      setStatusText(SAC_STATUS_LABELS.failed);
+      showToast?.(message, 'error');
+    } finally {
+      setBusy(false);
+      abortRef.current = null;
+    }
+  };
+
+  if (!enabled) return null;
+
+  return (
+    <Card className="w-full max-w-4xl border border-border shadow-none">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold flex items-center gap-2">
+          <Hash className="w-4 h-4 text-primary" />
+          Buscar reclamo en SAC
+        </CardTitle>
+        <CardDescription>
+          Ingresá número y año. El sistema descarga el PDF y lo abre acá para revisar y enviar.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSearch} className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-3 items-end">
+            <div className="space-y-1.5">
+              <Label htmlFor="sac-numero">Número de reclamo</Label>
+              <Input
+                id="sac-numero"
+                inputMode="numeric"
+                placeholder="Ej. 12345"
+                value={numero}
+                disabled={busy || !connected}
+                onChange={(e) => setNumero(e.target.value.replace(/[^0-9-]/g, ''))}
+                className="h-10"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sac-anio">Año</Label>
+              <Input
+                id="sac-anio"
+                inputMode="numeric"
+                placeholder={String(currentYear)}
+                value={anio}
+                disabled={busy || !connected}
+                onChange={(e) => setAnio(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                className="h-10"
+                autoComplete="off"
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={busy || !connected || !numero.trim()}
+              className="h-10 gap-2 sm:min-w-[140px]"
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              {busy ? 'Buscando…' : 'Buscar'}
+            </Button>
+          </div>
+
+          {busy && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground rounded-lg border border-border bg-muted/30 px-3 py-2">
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              <span>{statusText || 'Procesando…'}</span>
+            </div>
+          )}
+
+          {error && !busy && (
+            <div className="flex items-start gap-2 text-sm text-red-600 dark:text-red-400 rounded-lg border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 px-3 py-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {!connected && (
+            <p className="text-xs text-muted-foreground">
+              Conectá WhatsApp para habilitar la búsqueda automática.
+            </p>
+          )}
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -2127,11 +2350,12 @@ export default function App() {
   const [loadingContacts, setLoadingContacts] = useState(true);
   const [groups, setGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(true);
-  const [botStatus, setBotStatus] = useState({ connected: false, connecting: false, checking: true, qr: null, offline: false, phoneUser: null, stalled: false, pairingBlocked: false });
+  const [botStatus, setBotStatus] = useState({ connected: false, connecting: false, checking: true, qr: null, offline: false, phoneUser: null, stalled: false, pairingBlocked: false, sacEnabled: false });
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState('send');
   const [step, setStep] = useState(0);
   const [file, setFile] = useState(null);
+  const [sacSource, setSacSource] = useState(null); // { storagePath, jobId } when PDF came from SAC
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
@@ -2325,12 +2549,13 @@ export default function App() {
           offline: false,
           phoneUser: data.phone_user || null,
           stalled: !!data.stalled || (!data.connected && !data.connecting && !data.qr),
-          pairingBlocked: !!data.pairing_blocked || data.last_disconnect_code === 405
+          pairingBlocked: !!data.pairing_blocked || data.last_disconnect_code === 405,
+          sacEnabled: !!data.sac_enabled
         });
       } catch {
         failedCount++;
         if (failedCount >= 3) {
-          setBotStatus({ connected: false, connecting: false, checking: false, qr: null, offline: true, phoneUser: null, stalled: false, pairingBlocked: false });
+          setBotStatus({ connected: false, connecting: false, checking: false, qr: null, offline: true, phoneUser: null, stalled: false, pairingBlocked: false, sacEnabled: false });
         }
       }
     };
@@ -2376,6 +2601,7 @@ export default function App() {
 
       const droppedFile = e.dataTransfer.files?.[0];
       if (droppedFile && droppedFile.type === 'application/pdf' && droppedFile.size <= 52428800) {
+        setSacSource(null);
         setFile(droppedFile);
         setStep(1);
         requestAnimationFrame(() => {
@@ -2405,7 +2631,7 @@ export default function App() {
 
     setSending(true);
     setProgress(10);
-    setProgressText('Subiendo archivo...');
+    setProgressText(sacSource?.storagePath ? 'Preparando envío...' : 'Subiendo archivo...');
     setSendingDetails({
       subtipo: pdfInfo?.subtipo || 'Reclamo',
       solicitudNro: pdfInfo?.solicitudNro || '',
@@ -2414,8 +2640,6 @@ export default function App() {
       currentName: ''
     });
 
-    const uniqueName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-    
     const cleanFileNameString = (str) => {
       return str.replace(/[\\/:*?"<>|]/g, '').trim();
     };
@@ -2432,9 +2656,15 @@ export default function App() {
       }
     }
 
+    // SAC already uploaded to Storage — reuse storage_path. Manual upload still goes to bucket.
+    let storageFileName = sacSource?.storagePath || null;
+
     try {
-      const { error: uploadError } = await supabase.storage.from('pdfs').upload(uniqueName, file, { cacheControl: '3600', upsert: true });
-      if (uploadError) throw uploadError;
+      if (!storageFileName) {
+        storageFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+        const { error: uploadError } = await supabase.storage.from('pdfs').upload(storageFileName, file, { cacheControl: '3600', upsert: true });
+        if (uploadError) throw uploadError;
+      }
       
       setProgress(50);
       const results = [];
@@ -2448,7 +2678,7 @@ export default function App() {
         try {
           const payload = recipient.isGroup
             ? {
-                fileName: uniqueName,
+                fileName: storageFileName,
                 groupJid: recipient.group_jid,
                 isGroup: true,
                 caption: messageText,
@@ -2459,7 +2689,7 @@ export default function App() {
                 usuarioCarga: pdfInfo?.usuarioCarga || null
               }
             : {
-                fileName: uniqueName,
+                fileName: storageFileName,
                 phoneNumber: recipient.phone_number,
                 caption: messageText,
                 contactName: recipient.name,
@@ -2532,6 +2762,7 @@ export default function App() {
       autoCloseTimeoutRef.current = null;
     }
     setFile(null);
+    setSacSource(null);
     setStep(0);
     setDerivationStatus(null);
     setSending(false);
@@ -2667,8 +2898,29 @@ export default function App() {
 
           {step === 0 && (
             <div className="animate-slide-backward flex flex-col items-center gap-6 w-full">
+              <SacClaimSearch
+                enabled={!!botStatus.sacEnabled}
+                connected={!!botStatus.connected}
+                showToast={showToast}
+                onReady={(f, meta) => {
+                  setSacSource(meta?.storagePath ? { storagePath: meta.storagePath, jobId: meta.jobId } : null);
+                  setFile(f);
+                  setStep(1);
+                  requestAnimationFrame(() => {
+                    bringChromeIntoView(headerRef.current);
+                  });
+                }}
+              />
+              {botStatus.sacEnabled && (
+                <div className="w-full max-w-4xl flex items-center gap-3 text-xs text-muted-foreground">
+                  <Separator className="flex-1" />
+                  <span className="shrink-0 uppercase">o</span>
+                  <Separator className="flex-1" />
+                </div>
+              )}
               <DropZone 
                 onFile={(f) => {
+                  setSacSource(null);
                   setFile(f);
                   setStep(1);
                   requestAnimationFrame(() => {
@@ -2691,6 +2943,7 @@ export default function App() {
                 onAddSubtipoToCatalog={handleAddSubtipoToCatalog}
                 onBack={() => {
                   setFile(null);
+                  setSacSource(null);
                   setStep(0);
                   setDerivationStatus(null);
                   bringChromeIntoView(headerRef.current);
@@ -2875,9 +3128,9 @@ export default function App() {
                     1
                   </div>
                   <div className="space-y-1">
-                    <h3 className="font-bold text-sm text-foreground uppercase tracking-wide">1. Descargá el PDF</h3>
+                    <h3 className="font-bold text-sm text-foreground uppercase tracking-wide">1. Buscá o cargá</h3>
                     <p className="text-xs text-muted-foreground leading-normal">
-                      Descargá el reclamo desde el SAC en formato PDF en tu computadora.
+                      Escribí el número y año del reclamo para traerlo desde el SAC, o subí el PDF a mano.
                     </p>
                   </div>
                 </div>
@@ -2888,9 +3141,9 @@ export default function App() {
                     2
                   </div>
                   <div className="space-y-1">
-                    <h3 className="font-bold text-sm text-foreground uppercase tracking-wide">2. Arrastrá el Archivo</h3>
+                    <h3 className="font-bold text-sm text-foreground uppercase tracking-wide">2. Revisá el PDF</h3>
                     <p className="text-xs text-muted-foreground leading-normal">
-                      Subilo aquí. El sistema detecta el área y el subtipo del reclamo al instante.
+                      El sistema detecta el área y el subtipo del reclamo al instante.
                     </p>
                   </div>
                 </div>

@@ -1,5 +1,9 @@
 .agents/
 .cursor/mcp.json
+.cursor/.sac_token_tmp
+.cursor/.netlify_site_id
+.cursor/.sac_env_render.json
+.cursor/.render_env_payload.json
 node_modules/
 .env
 .env.*

@@ -24,10 +24,35 @@ async function fileExists(filePath) {
   }
 }
 
-async function saveSessionState(context) {
+async function saveSessionState(context, remoteSave) {
   const sessionDir = path.dirname(SAC_SESSION_STATE_PATH);
   await fs.mkdir(sessionDir, { recursive: true });
   await context.storageState({ path: SAC_SESSION_STATE_PATH });
+  if (typeof remoteSave === 'function') {
+    try {
+      const raw = await fs.readFile(SAC_SESSION_STATE_PATH, 'utf8');
+      await remoteSave(JSON.parse(raw));
+    } catch (err) {
+      console.warn('[SAC] No se pudo persistir la sesión remota:', err.message || err);
+    }
+  }
+}
+
+async function prepareLocalSessionState(remoteLoad) {
+  if (await fileExists(SAC_SESSION_STATE_PATH)) return true;
+  if (typeof remoteLoad !== 'function') return false;
+  try {
+    const state = await remoteLoad();
+    if (!state || typeof state !== 'object') return false;
+    const sessionDir = path.dirname(SAC_SESSION_STATE_PATH);
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(SAC_SESSION_STATE_PATH, JSON.stringify(state), 'utf8');
+    console.log('[SAC] Sesión remota restaurada en disco local.');
+    return true;
+  } catch (err) {
+    console.warn('[SAC] No se pudo restaurar la sesión remota:', err.message || err);
+    return false;
+  }
 }
 
 async function waitForFirst(page, selectors, timeout = 15000) {
@@ -224,7 +249,7 @@ async function performLogin(page, usuario, contrasena) {
   ]);
 }
 
-async function ensureLoggedIn(page, context, usuario, contrasena) {
+async function ensureLoggedIn(page, context, usuario, contrasena, remoteSave) {
   await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
 
   if (!(await isLoginPage(page))) {
@@ -233,7 +258,7 @@ async function ensureLoggedIn(page, context, usuario, contrasena) {
 
   console.log('[SAC] Sesión expirada o inexistente. Iniciando login...');
   await performLogin(page, usuario, contrasena);
-  await saveSessionState(context);
+  await saveSessionState(context, remoteSave);
   await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
 
   if (await isLoginPage(page)) {
@@ -350,7 +375,14 @@ async function triggerPdfDownload({ page, scope, context, numeroReclamo, timeout
   throw new Error('No se pudo descargar el PDF del reclamo en SAC');
 }
 
-async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena }) {
+async function runSacSingleClaimFetch({
+  numeroReclamo,
+  anio,
+  usuario,
+  contrasena,
+  loadSessionState,
+  saveSessionState: remoteSaveSessionState
+} = {}) {
   if (!usuario || !contrasena) {
     throw new Error('Faltan credenciales SAC_USER / SAC_PASSWORD en variables de entorno');
   }
@@ -359,16 +391,18 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
   try {
     playwright = require('playwright');
   } catch (_) {
-    throw new Error('No se encontró Playwright instalado en el servidor');
+    throw new Error('No se encontró Playwright instalado en el servidor. Ejecutá: npm i playwright && npx playwright install chromium');
   }
 
   const MAX_ATTEMPTS = 2;
   let lastError = null;
+  const startedAt = Date.now();
+  console.log(`[SAC] Inicio descarga reclamo ${numeroReclamo}/${anio}`);
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const browser = await playwright.chromium.launch({
       headless: SAC_HEADLESS,
-      args: ['--no-sandbox', '--disable-dev-shm-usage']
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
     });
 
     try {
@@ -377,16 +411,17 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
         viewport: { width: 1440, height: 900 }
       };
 
-      if (attempt === 1 && await fileExists(SAC_SESSION_STATE_PATH)) {
+      const hasLocalSession = attempt === 1 && await prepareLocalSessionState(loadSessionState);
+      if (hasLocalSession && await fileExists(SAC_SESSION_STATE_PATH)) {
         contextOptions.storageState = SAC_SESSION_STATE_PATH;
-        console.log('[SAC] Reutilizando sesión guardada localmente.');
+        console.log('[SAC] Reutilizando sesión guardada.');
       }
 
       const context = await browser.newContext(contextOptions);
       const page = await context.newPage();
       page.setDefaultTimeout(SAC_TIMEOUT_MS);
 
-      await ensureLoggedIn(page, context, usuario, contrasena);
+      await ensureLoggedIn(page, context, usuario, contrasena, remoteSaveSessionState);
 
       const resolveSearchForm = async () => {
         const scopes = getSearchScopes(page);
@@ -495,7 +530,7 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
         console.warn(`[SAC] No se pudo detectar el formulario de búsqueda al primer intento: ${firstError.message}`);
         console.warn('[SAC] Reintentando con login forzado y refresco completo de sesión...');
         await performLogin(page, usuario, contrasena);
-        await saveSessionState(context);
+        await saveSessionState(context, remoteSaveSessionState);
         await page.goto(SAC_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: SAC_TIMEOUT_MS });
         await page.waitForLoadState('networkidle', { timeout: SAC_TIMEOUT_MS }).catch(() => null);
         form = await resolveSearchForm();
@@ -531,7 +566,10 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
         timeoutMs: SAC_TIMEOUT_MS
       });
 
-      await saveSessionState(context);
+      await saveSessionState(context, remoteSaveSessionState);
+
+      const elapsedMs = Date.now() - startedAt;
+      console.log(`[SAC] Reclamo ${numeroReclamo}/${anio} listo en ${elapsedMs}ms (${Math.round((pdfBuffer?.length || 0) / 1024)} KB)`);
 
       return {
         pdfBuffer,
@@ -545,6 +583,7 @@ async function runSacSingleClaimFetch({ numeroReclamo, anio, usuario, contrasena
       if (isTransientBrowserClose && attempt < MAX_ATTEMPTS) {
         console.warn(`[SAC] Intento ${attempt} falló por cierre inesperado del navegador. Reintentando desde cero...`);
       } else {
+        console.error(`[SAC] Fallo descarga ${numeroReclamo}/${anio}:`, message);
         throw error;
       }
     } finally {

@@ -10,9 +10,24 @@
   # Directorio final compilado para publicar en producción
   publish = "frontend/dist"
 
-# Redirección de API (Proxy inverso)
-# Redirige llamadas relativas /api/* hacia el backend en Render para evitar
-# problemas de CORS y mantener coherencia entre desarrollo y producción.
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Proxy seguro SAC (inyecta SAC_AUTOMATION_TOKEN). force=true gana al redirect genérico.
+[[redirects]]
+  from = "/api/sac"
+  to = "/.netlify/functions/sac-proxy/sac"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/sac/*"
+  to = "/.netlify/functions/sac-proxy/sac/:splat"
+  status = 200
+  force = true
+
+# Proxy genérico del resto del backend (status, send-pdf, groups, etc.)
 [[redirects]]
   from = "/api/*"
   to = "https://whatsapp-pdf-bot-backend.onrender.com/:splat"
