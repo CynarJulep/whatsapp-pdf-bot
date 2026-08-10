@@ -1149,14 +1149,16 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
     });
   };
 
-  const doSend = () => {
+  const doSend = (opts = {}) => {
     const selectedContacts = contacts.filter(c => selected.has(`c_${c.id}`));
     const selectedGroups = groups.filter(g => selected.has(`g_${g.id}`));
     const recipients = [
       ...selectedContacts.map(c => ({ ...c, isGroup: false })),
       ...selectedGroups.map(g => ({ ...g, isGroup: true }))
     ];
-    onSend(recipients, pdfInfo, messageText);
+    onSend(recipients, pdfInfo, messageText, {
+      protocolOverride: Boolean(opts.protocolOverride),
+    });
   };
 
   const handleSend = () => {
@@ -1687,7 +1689,7 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
             <AlertDialogAction
               onClick={() => {
                 setConfirmSendOpen(false);
-                doSend();
+                doSend({ protocolOverride: true });
               }}
             >
               Sí, enviar igual
@@ -2453,6 +2455,7 @@ function HistoryItem({ item, showUsuario = false }) {
   const timeStr = created ? created.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
   const dateStr = created ? created.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '';
   const isSuccess = item.status === 'success';
+  const protocolOverride = Boolean(item.protocol_override);
 
   useEffect(() => {
     if (expanded && elementRef.current) {
@@ -2463,14 +2466,22 @@ function HistoryItem({ item, showUsuario = false }) {
     }
   }, [expanded]);
 
+  const cardTone = protocolOverride
+    ? 'border-amber-500/35 bg-amber-500/[0.07] hover:bg-amber-500/[0.12] dark:border-amber-500/30 dark:bg-amber-950/25 dark:hover:bg-amber-950/35'
+    : isSuccess
+      ? 'border-emerald-500/20 bg-emerald-500/[0.03] hover:bg-emerald-500/[0.07] dark:border-emerald-500/15 dark:bg-emerald-950/10 dark:hover:bg-emerald-950/20'
+      : 'border-rose-500/20 bg-rose-500/[0.03] hover:bg-rose-500/[0.07] dark:border-rose-500/15 dark:bg-rose-950/10 dark:hover:bg-rose-950/20';
+
+  const iconTone = protocolOverride
+    ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
+    : isSuccess
+      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+      : 'bg-rose-500/15 text-rose-700 dark:text-rose-400';
+
   return (
     <div
       ref={elementRef}
-      className={`overflow-hidden rounded-xl border transition-colors duration-200 ${
-        isSuccess
-          ? 'border-emerald-500/20 bg-emerald-500/[0.03] hover:bg-emerald-500/[0.07] dark:border-emerald-500/15 dark:bg-emerald-950/10 dark:hover:bg-emerald-950/20'
-          : 'border-rose-500/20 bg-rose-500/[0.03] hover:bg-rose-500/[0.07] dark:border-rose-500/15 dark:bg-rose-950/10 dark:hover:bg-rose-950/20'
-      }`}
+      className={`overflow-hidden rounded-xl border transition-colors duration-200 ${cardTone}`}
     >
       <button
         type="button"
@@ -2479,21 +2490,29 @@ function HistoryItem({ item, showUsuario = false }) {
         className="flex w-full items-start gap-3 p-3.5 text-left sm:gap-3.5 sm:p-4"
       >
         <span
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-            isSuccess
-              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
-              : 'bg-rose-500/15 text-rose-700 dark:text-rose-400'
-          }`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${iconTone}`}
           aria-hidden="true"
         >
-          {isSuccess ? <Check className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          {protocolOverride
+            ? <ShieldAlert className="h-4 w-4" />
+            : isSuccess
+              ? <Check className="h-4 w-4" />
+              : <AlertCircle className="h-4 w-4" />}
         </span>
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-start gap-2">
-            <h3 className="min-w-0 flex-1 break-words text-sm font-bold uppercase leading-snug text-foreground">
-              {item.subtipo || 'Sin subtipo'}
-            </h3>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <h3 className="break-words text-sm font-bold uppercase leading-snug text-foreground">
+                {item.subtipo || 'Sin subtipo'}
+              </h3>
+              {protocolOverride && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-amber-600/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900 dark:border-amber-400/25 dark:bg-amber-500/10 dark:text-amber-200">
+                  <ShieldAlert className="h-3 w-3" />
+                  Enviado en protocolo
+                </span>
+              )}
+            </div>
             <ChevronDown
               className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-300 ${
                 expanded ? 'rotate-180' : ''
@@ -2957,10 +2976,11 @@ export default function App() {
     };
   }, [botStatus.connected, showToast]);
 
-  const handleSend = async (recipients, pdfInfoOrArea, messageText) => {
+  const handleSend = async (recipients, pdfInfoOrArea, messageText, options = {}) => {
     if (!file || recipients.length === 0) return;
     const pdfInfo = typeof pdfInfoOrArea === 'object' ? pdfInfoOrArea : null;
     const areaDestino = pdfInfo ? pdfInfo.areaDestino : pdfInfoOrArea;
+    const protocolOverride = Boolean(options?.protocolOverride);
 
     setSending(true);
     setProgress(10);
@@ -3019,7 +3039,8 @@ export default function App() {
                 solicitudNro: pdfInfo?.solicitudNro,
                 subtipo: pdfInfo?.subtipo,
                 displayName: displayName,
-                usuarioCarga: pdfInfo?.usuarioCarga || null
+                usuarioCarga: pdfInfo?.usuarioCarga || null,
+                protocolOverride
               }
             : {
                 fileName: storageFileName,
@@ -3029,7 +3050,8 @@ export default function App() {
                 solicitudNro: pdfInfo?.solicitudNro,
                 subtipo: pdfInfo?.subtipo,
                 displayName: displayName,
-                usuarioCarga: pdfInfo?.usuarioCarga || null
+                usuarioCarga: pdfInfo?.usuarioCarga || null,
+                protocolOverride
               };
           const res = await fetch(`${backendUrl}/send-pdf`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },

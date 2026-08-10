@@ -687,7 +687,7 @@ app.get('/groups', async (req, res) => {
 });
 
 async function logShipment(record) {
-    const optionalFields = ['file_name', 'usuario_carga'];
+    const optionalFields = ['file_name', 'usuario_carga', 'protocol_override'];
     let payload = { ...record };
 
     let { error } = await supabase.from('shipments').insert(payload);
@@ -1474,7 +1474,8 @@ app.post('/send-text', requireApiKey, async (req, res) => {
 });
 
 app.post('/send-pdf', requireApiKey, async (req, res) => {
-    const { fileName, phoneNumber, groupJid, caption, contactName, solicitudNro, subtipo, displayName, isGroup, usuarioCarga } = req.body;
+    const { fileName, phoneNumber, groupJid, caption, contactName, solicitudNro, subtipo, displayName, isGroup, usuarioCarga, protocolOverride } = req.body;
+    const protocolOverrideFlag = Boolean(protocolOverride);
 
     // 1. Validation
     if (!fileName || (!phoneNumber && !groupJid)) {
@@ -1559,6 +1560,7 @@ app.post('/send-pdf', requireApiKey, async (req, res) => {
             subtipo: subtipo || null,
             file_name: displayName || fileName || null,
             usuario_carga: usuarioCarga || null,
+            protocol_override: protocolOverrideFlag,
             status: 'success',
             message_text: caption || 'Adjunto el documento solicitado.',
             is_group: !!isGroup,
@@ -1586,6 +1588,7 @@ app.post('/send-pdf', requireApiKey, async (req, res) => {
             subtipo: subtipo || null,
             file_name: displayName || fileName || null,
             usuario_carga: usuarioCarga || null,
+            protocol_override: protocolOverrideFlag,
             status: 'failed',
             message_text: caption || 'Adjunto el documento solicitado.',
             is_group: !!isGroup,
