@@ -820,7 +820,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
             aria-live="polite"
             aria-atomic="true"
             aria-label={`Estado de búsqueda: ${statusText || 'Procesando'}`}
-            className="sac-wave-stage relative flex min-h-60 flex-col justify-center gap-7 overflow-hidden px-5 py-10 sm:min-h-72 sm:px-12"
+            className="sac-wave-stage relative flex min-h-[24rem] flex-col justify-center gap-7 overflow-hidden px-5 py-12 sm:min-h-[28rem] sm:px-12"
           >
             {/* Olas rotatorias (estilo liquid loader) mientras se consulta SAC */}
             <div className="sac-wave" aria-hidden="true">
