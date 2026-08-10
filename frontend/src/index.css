@@ -634,7 +634,8 @@
 /* ===== OLAS ROTATORIAS (panel “Buscando reclamo”) ===== */
 /* Adaptación del liquid-wave loader a la paleta municipal (#003b73). */
 .sac-wave-stage {
-  background: #003b73;
+  /* Azul un poco más vivo para que se note la línea de oleaje contra el “tinta” */
+  background: #0a5aa8;
   box-shadow: inset 0 0 40px rgb(0 20 40 / 0.35);
 }
 
@@ -645,36 +646,40 @@
   pointer-events: none;
 }
 
+/* display:block es obligatorio: si no, el span queda inline y width/height no aplican */
 .sac-wave span {
+  display: block;
   position: absolute;
-  width: 220%;
-  aspect-ratio: 1;
+  width: min(240vw, 1600px);
+  height: min(240vw, 1600px);
   top: 0;
   left: 50%;
-  transform: translate(-50%, -72%);
+  /* -80%: deja ~40% inferior con agua azul visible y la cresta de la ola al medio */
+  transform: translate(-50%, -80%);
+  will-change: transform;
 }
 
 .sac-wave span:nth-child(1) {
   border-radius: 45%;
-  background: rgb(0 25 55 / 0.92);
+  background: rgb(0 18 42 / 0.96);
   animation: sac-wave-spin 5s linear infinite;
 }
 
 .sac-wave span:nth-child(2) {
   border-radius: 40%;
-  background: rgb(0 25 55 / 0.5);
+  background: rgb(0 18 42 / 0.55);
   animation: sac-wave-spin 10s linear infinite;
 }
 
 .sac-wave span:nth-child(3) {
   border-radius: 42.5%;
-  background: rgb(0 25 55 / 0.45);
+  background: rgb(0 18 42 / 0.4);
   animation: sac-wave-spin 15s linear infinite;
 }
 
 @keyframes sac-wave-spin {
-  0% { transform: translate(-50%, -72%) rotate(0deg); }
-  100% { transform: translate(-50%, -72%) rotate(360deg); }
+  0% { transform: translate(-50%, -80%) rotate(0deg); }
+  100% { transform: translate(-50%, -80%) rotate(360deg); }
 }
 
 .sac-wave-stage [data-slot="progress"] {
