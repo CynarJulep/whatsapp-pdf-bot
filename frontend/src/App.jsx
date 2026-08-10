@@ -820,27 +820,31 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
             aria-live="polite"
             aria-atomic="true"
             aria-label={`Estado de búsqueda: ${statusText || 'Procesando'}`}
-            className="relative flex min-h-56 flex-col justify-center gap-7 overflow-hidden px-5 py-10 sm:min-h-64 sm:px-12"
+            className="sac-wave-stage relative flex min-h-60 flex-col justify-center gap-7 overflow-hidden px-5 py-10 sm:min-h-72 sm:px-12"
           >
-            {/* Sonar: ondas expandiéndose mientras se rastrea el reclamo */}
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
-              <div className="absolute aspect-square w-[85%] rounded-full border border-primary/25 bg-primary/[0.04] animate-radar-1" />
-              <div className="absolute aspect-square w-[85%] rounded-full border border-primary/25 bg-primary/[0.04] animate-radar-2" />
-              <div className="absolute aspect-square w-[85%] rounded-full border border-primary/25 bg-primary/[0.04] animate-radar-3" />
+            {/* Olas rotatorias (estilo liquid loader) mientras se consulta SAC */}
+            <div className="sac-wave" aria-hidden="true">
+              <span />
+              <span />
+              <span />
             </div>
 
             <div className="relative z-10 mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-              <span className="text-sm font-medium text-foreground">{statusText || 'Procesando…'}</span>
-              <p className="text-xs leading-relaxed text-muted-foreground">
+              <span className="text-sm font-semibold text-white">{statusText || 'Procesando…'}</span>
+              <p className="text-xs leading-relaxed text-white/70">
                 Estamos consultando SAC y preparando el documento para la vista previa.
               </p>
             </div>
             <div className="relative z-10 mx-auto w-full max-w-md space-y-2">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <div className="flex items-center justify-between text-xs text-white/70">
                 <span>Progreso estimado</span>
-                <span className="font-medium tabular-nums text-foreground">{displayedProgress}%</span>
+                <span className="font-medium tabular-nums text-white">{displayedProgress}%</span>
               </div>
-              <Progress value={searchProgress} aria-label="Progreso estimado de búsqueda del reclamo" className="h-2" />
+              <Progress
+                value={searchProgress}
+                aria-label="Progreso estimado de búsqueda del reclamo"
+                className="h-2"
+              />
             </div>
             <ol className="relative z-10 mx-auto flex w-full max-w-md items-start justify-between gap-2" aria-label="Etapas de búsqueda">
               {SAC_PROGRESS_STEPS.map((step, index) => {
@@ -850,13 +854,13 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
                   <li key={step.id} className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
                     <span className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs ${
                       complete || current
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border bg-background text-muted-foreground'
+                        ? 'border-white bg-white text-[#003b73]'
+                        : 'border-white/35 bg-white/10 text-white/70'
                     }`}>
                       {complete ? <Check className="h-3.5 w-3.5" /> : index + 1}
                     </span>
                     <span className={`text-[11px] leading-tight ${
-                      current ? 'font-medium text-foreground' : 'text-muted-foreground'
+                      current ? 'font-medium text-white' : 'text-white/60'
                     }`}>
                       {step.label}
                     </span>

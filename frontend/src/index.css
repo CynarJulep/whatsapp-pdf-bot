@@ -631,6 +631,66 @@
   }
 }
 
+/* ===== OLAS ROTATORIAS (panel “Buscando reclamo”) ===== */
+/* Adaptación del liquid-wave loader a la paleta municipal (#003b73). */
+.sac-wave-stage {
+  background: #003b73;
+  box-shadow: inset 0 0 40px rgb(0 20 40 / 0.35);
+}
+
+.sac-wave {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sac-wave span {
+  position: absolute;
+  width: 220%;
+  aspect-ratio: 1;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -72%);
+}
+
+.sac-wave span:nth-child(1) {
+  border-radius: 45%;
+  background: rgb(0 25 55 / 0.92);
+  animation: sac-wave-spin 5s linear infinite;
+}
+
+.sac-wave span:nth-child(2) {
+  border-radius: 40%;
+  background: rgb(0 25 55 / 0.5);
+  animation: sac-wave-spin 10s linear infinite;
+}
+
+.sac-wave span:nth-child(3) {
+  border-radius: 42.5%;
+  background: rgb(0 25 55 / 0.45);
+  animation: sac-wave-spin 15s linear infinite;
+}
+
+@keyframes sac-wave-spin {
+  0% { transform: translate(-50%, -72%) rotate(0deg); }
+  100% { transform: translate(-50%, -72%) rotate(360deg); }
+}
+
+.sac-wave-stage [data-slot="progress"] {
+  background: rgb(255 255 255 / 0.2);
+}
+
+.sac-wave-stage [data-slot="progress-indicator"] {
+  background: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sac-wave span {
+    animation: none;
+  }
+}
+
 /* ===== PREMIUM DIRECTIONAL PAGE TRANSITIONS ===== */
 @keyframes slideForward {
   from {
