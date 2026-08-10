@@ -25,14 +25,22 @@ function Read-DotEnvValue([string]$Path, [string]$Name) {
 
 $localEnv = Join-Path $ProjectDir '.env'
 $tokenFile = Join-Path $ProjectDir '.cursor\.sac_token_tmp'
+
+# Preferir .env del repo; si no hay, reutilizar worker.env ya instalado (reinstalaciones).
 $sacUser = Read-DotEnvValue $localEnv 'SAC_USER'
+if (-not $sacUser) { $sacUser = Read-DotEnvValue $envFile 'SAC_USER' }
 $sacPassword = Read-DotEnvValue $localEnv 'SAC_PASSWORD'
+if (-not $sacPassword) { $sacPassword = Read-DotEnvValue $envFile 'SAC_PASSWORD' }
 $backendUrl = Read-DotEnvValue $localEnv 'SAC_BACKEND_URL'
+if (-not $backendUrl) { $backendUrl = Read-DotEnvValue $envFile 'SAC_BACKEND_URL' }
 if (-not $backendUrl) { $backendUrl = 'https://whatsapp-pdf-bot-backend.onrender.com' }
-$token = if (Test-Path $tokenFile) { (Get-Content $tokenFile -Raw).Trim() } else { $null }
+
+$token = $null
+if (Test-Path $tokenFile) { $token = (Get-Content $tokenFile -Raw).Trim() }
+if (-not $token) { $token = Read-DotEnvValue $envFile 'SAC_AUTOMATION_TOKEN' }
 
 if (-not $sacUser -or -not $sacPassword -or -not $token) {
-    throw 'Faltan SAC_USER, SAC_PASSWORD o .cursor/.sac_token_tmp.'
+    throw 'Faltan SAC_USER, SAC_PASSWORD o token (ni en .env ni en worker.env existente).'
 }
 
 New-Item -ItemType Directory -Force -Path $serviceDir, $browserDir | Out-Null
@@ -43,6 +51,7 @@ New-Item -ItemType Directory -Force -Path $serviceDir, $browserDir | Out-Null
     "SAC_USER=$sacUser"
     "SAC_PASSWORD=$sacPassword"
     'SAC_HEADLESS=true'
+    'SAC_WORKER_POLL_MS=3000'
 ) | Set-Content -Path $envFile -Encoding ascii
 
 $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
@@ -54,9 +63,11 @@ $runner = @"
 `$env:SAC_WORKER_ENV_FILE = '$envFile'
 `$env:PLAYWRIGHT_BROWSERS_PATH = '$browserDir'
 Set-Location '$ProjectDir'
-"[`$(Get-Date -Format o)] Iniciando SAC Worker" | Out-File -FilePath '$logFile' -Encoding utf8
+"[`$(Get-Date -Format o)] Iniciando SAC Worker (boot/restart)" | Out-File -FilePath '$logFile' -Append -Encoding utf8
 & '$nodePath' '$workerPath' *>> '$logFile'
-exit `$LASTEXITCODE
+`$code = `$LASTEXITCODE
+"[`$(Get-Date -Format o)] SAC Worker salió con código `$code" | Out-File -FilePath '$logFile' -Append -Encoding utf8
+exit `$code
 "@
 $runner | Set-Content -Path $runnerFile -Encoding utf8
 
@@ -82,7 +93,10 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartCount 999 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero) `
-    -MultipleInstances IgnoreNew
+    -MultipleInstances IgnoreNew `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -DontStopOnIdleEnd
 
 Register-ScheduledTask `
     -TaskName $taskName `
