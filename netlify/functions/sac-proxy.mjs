@@ -6,9 +6,14 @@ const BACKEND_URL = (
 
 const SAC_AUTOMATION_TOKEN = process.env.SAC_AUTOMATION_TOKEN || '';
 
-/** Simple in-memory rate limit per IP (resets on cold start). */
+/**
+ * Rate limit in-memory por IP (se reinicia en cold start).
+ * Los GET de estado (/sac/jobs/:id) NO cuentan: el frontend hace polling
+ * y un límite bajo los ahoga apenas el worker tarda (PC apagada, etc.).
+ * Solo se limitan POST/PUT/DELETE (crear jobs).
+ */
 const hits = new Map();
-const RATE_LIMIT = Number(process.env.SAC_PROXY_RATE_LIMIT || 30);
+const RATE_LIMIT = Number(process.env.SAC_PROXY_RATE_LIMIT || 20);
 const RATE_WINDOW_MS = Number(process.env.SAC_PROXY_RATE_WINDOW_MS || 60_000);
 
 function clientIp(req, context) {
@@ -31,12 +36,18 @@ function allowRequest(ip) {
   return true;
 }
 
-function json(status, body) {
+/** Consultas de estado del job: no gastan cupo de rate limit. */
+function isJobStatusPoll(method, targetPath) {
+  return method === 'GET' && /^\/sac\/jobs\/[^/]+$/.test(targetPath);
+}
+
+function json(status, body, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
+      ...extraHeaders,
     },
   });
 }
@@ -76,14 +87,6 @@ export default async (req, context) => {
     });
   }
 
-  const ip = clientIp(req, context);
-  if (!allowRequest(ip)) {
-    return json(429, {
-      success: false,
-      message: 'Demasiadas solicitudes. Esperá un momento e intentá de nuevo.',
-    });
-  }
-
   const url = new URL(req.url);
   const targetPath = resolveSacPath(url.pathname);
   if (!targetPath) {
@@ -92,6 +95,15 @@ export default async (req, context) => {
       message: 'Ruta SAC no encontrada.',
       path: url.pathname,
     });
+  }
+
+  const ip = clientIp(req, context);
+  if (!isJobStatusPoll(req.method, targetPath) && !allowRequest(ip)) {
+    return json(429, {
+      success: false,
+      message: 'Demasiadas solicitudes. Esperá un momento e intentá de nuevo.',
+      retryAfterSec: 15,
+    }, { 'Retry-After': '15' });
   }
 
   const target = `${BACKEND_URL}${targetPath}${url.search}`;

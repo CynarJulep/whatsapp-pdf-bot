@@ -625,14 +625,36 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
     return () => window.clearInterval(timer);
   }, [busy, jobStatus]);
 
+  const sleepAbortable = useCallback((ms, signal) => new Promise((resolve, reject) => {
+    pollRef.current = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => {
+      clearTimeout(pollRef.current);
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  }), []);
+
   const pollJob = useCallback(async (jobId, signal) => {
-    const res = await fetch(`${backendUrl}/sac/jobs/${encodeURIComponent(jobId)}`, { signal });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) {
-      throw new Error(data.message || 'No se pudo consultar el estado de la búsqueda.');
+    // Ante 429 reintentamos con backoff: el proxy a veces se satura si hay cold starts.
+    let delayMs = 1500;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const res = await fetch(`${backendUrl}/sac/jobs/${encodeURIComponent(jobId)}`, { signal });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 429) {
+        const retrySec = Number(data.retryAfterSec) || Math.ceil(delayMs / 1000);
+        setStatusText(`Servidor ocupado, reintentando en ${retrySec}s…`);
+        await sleepAbortable(delayMs, signal);
+        delayMs = Math.min(delayMs * 1.6, 12_000);
+        continue;
+      }
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'No se pudo consultar el estado de la búsqueda.');
+      }
+      return data.job;
     }
-    return data.job;
-  }, []);
+    throw new Error('Demasiadas solicitudes. Esperá un momento e intentá de nuevo.');
+  }, [sleepAbortable]);
 
   const waitForJob = useCallback(async (jobId, signal) => {
     const started = Date.now();
@@ -641,26 +663,31 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
     while (Date.now() - started < maxMs) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       const job = await pollJob(jobId, signal);
-      setJobStatus(job.status || 'running');
-      setStatusText(SAC_STATUS_LABELS[job.status] || 'Procesando…');
+      const status = job.status || 'running';
+      setJobStatus(status);
 
-      if (job.status === 'ready') {
+      const waitedSec = Math.round((Date.now() - started) / 1000);
+      if (status === 'queued' && waitedSec >= 20) {
+        // Tip típico post-apagado: el worker SYSTEM tarda en volver a claimar.
+        setStatusText('Esperando al worker local… Si acabás de encender la PC, puede demorar un minuto.');
+      } else {
+        setStatusText(SAC_STATUS_LABELS[status] || 'Procesando…');
+      }
+
+      if (status === 'ready') {
         return job;
       }
-      if (job.status === 'failed') {
+      if (status === 'failed') {
         throw new Error(job.errorMessage || 'La búsqueda SAC falló.');
       }
 
-      await new Promise((resolve, reject) => {
-        pollRef.current = setTimeout(resolve, 750);
-        signal.addEventListener('abort', () => {
-          clearTimeout(pollRef.current);
-          reject(new DOMException('Aborted', 'AbortError'));
-        }, { once: true });
-      });
+      // En cola: polling más lento (el worker local polléa cada ~3s).
+      // En ejecución: un poco más frecuente.
+      const intervalMs = status === 'queued' ? 2000 : 1000;
+      await sleepAbortable(intervalMs, signal);
     }
     throw new Error('La búsqueda SAC tardó demasiado. Probá de nuevo o cargá el PDF manualmente.');
-  }, [pollJob]);
+  }, [pollJob, sleepAbortable]);
 
   const handleSearch = async (e) => {
     e?.preventDefault?.();

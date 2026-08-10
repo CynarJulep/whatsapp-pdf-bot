@@ -95,15 +95,39 @@ async function processJob(job) {
   }
 }
 
+async function recoverWithRetry() {
+  // Tras apagar/encender la PC, Render puede estar dormido unos segundos.
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    try {
+      await api('/sac/worker/recover', { method: 'POST' });
+      console.log('[SAC Worker] Recuperación OK: jobs "running" reencolados.');
+      return;
+    } catch (error) {
+      const waitMs = Math.min(15000, 2000 * attempt);
+      console.warn(
+        `[SAC Worker] Recover intento ${attempt}/8 falló (${error?.message || error}). Reintento en ${waitMs}ms…`
+      );
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+  console.warn('[SAC Worker] Seguimos sin recover; el claim igual tomará jobs queued.');
+}
+
 async function main() {
   console.log(`[SAC Worker] Backend ${backendUrl}. Poll cada ${pollMs}ms. Cerrá con Ctrl+C.`);
-  await api('/sac/worker/recover', { method: 'POST' });
+  await recoverWithRetry();
 
   while (!stopping) {
-    const job = await claimNextJob();
-    if (job) {
-      await processJob(job);
-      continue;
+    try {
+      const job = await claimNextJob();
+      if (job) {
+        await processJob(job);
+        continue;
+      }
+    } catch (error) {
+      // No matar el proceso: si el backend está despertando o hay un blip de red,
+      // la tarea programada ya reinicia, pero es mejor seguir vivos.
+      console.warn(`[SAC Worker] Claim falló: ${error?.message || error}. Reintento…`);
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
