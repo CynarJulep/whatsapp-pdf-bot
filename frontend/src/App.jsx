@@ -7,7 +7,7 @@ import {
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
   Check, Plus, Loader2, Zap, MapPin, ArrowRight,
   History, Clock, ChevronDown, ChevronUp, HelpCircle, BookOpen,
-  Copy, Download, FileSearch
+  Copy, Download, FileSearch, ShieldAlert
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,9 @@ import {
 } from '@/components/ui/select';
 
 import SubtypesCatalogDialog from '@/components/SubtypesCatalogDialog';
+import { ProtocolBanner, ProtocolInfoDialog } from '@/components/ProtocolBanner';
+import ProtocolConfigTab from '@/components/ProtocolConfigTab';
+import { DEFAULT_PROTOCOL, isProtocolExempt, normalizeProtocolRow } from '@/lib/protocol';
 
 // ── PDF.js worker ──────────────────────────────────────────────────────────────
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -959,7 +962,7 @@ function SacClaimSearch({ enabled, connected, onReady, showToast }) {
 }
 
 // ── Step 1: Preview + Contact Picker (split layout) ────────────────────────────
-function PreviewAndPick({ file, sacSource = null, contacts, groups = [], shipments = [], subtypesCatalog, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
+function PreviewAndPick({ file, sacSource = null, contacts, groups = [], shipments = [], subtypesCatalog, protocol = DEFAULT_PROTOCOL, onAddSubtipoToCatalog, onBack, onSend, sending, progress, progressText, onDerivationChange, onCatalogSearch, showToast }) {
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
   const [extracting, setExtracting] = useState(true);
@@ -967,7 +970,10 @@ function PreviewAndPick({ file, sacSource = null, contacts, groups = [], shipmen
   const [messageText, setMessageText] = useState('');
   const [isEditingMessage, setIsEditingMessage] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [confirmSendOpen, setConfirmSendOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const protocolExempt = isProtocolExempt(pdfInfo.subtipo, protocol?.exempt_subtypes);
+  const needsProtocolConfirm = Boolean(protocol?.active) && !protocolExempt;
 
   const activeContacts = contacts.filter(c => c.is_active);
   const activeGroups = groups.filter(g => g.is_active);
@@ -1143,7 +1149,7 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
     });
   };
 
-  const handleSend = () => {
+  const doSend = () => {
     const selectedContacts = contacts.filter(c => selected.has(`c_${c.id}`));
     const selectedGroups = groups.filter(g => selected.has(`g_${g.id}`));
     const recipients = [
@@ -1151,6 +1157,15 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
       ...selectedGroups.map(g => ({ ...g, isGroup: true }))
     ];
     onSend(recipients, pdfInfo, messageText);
+  };
+
+  const handleSend = () => {
+    if (selected.size === 0 || sending || extracting) return;
+    if (needsProtocolConfirm) {
+      setConfirmSendOpen(true);
+      return;
+    }
+    doSend();
   };
 
   // Close dropdown on click outside
@@ -1166,7 +1181,7 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (sending || extracting) return;
+      if (sending || extracting || confirmSendOpen) return;
       if (e.key === 'Enter' && selected.size > 0) {
         e.preventDefault();
         handleSend();
@@ -1181,7 +1196,7 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selected, sending, extracting, onBack, isOpen]);
+  }, [selected, sending, extracting, onBack, isOpen, confirmSendOpen, needsProtocolConfirm, pdfInfo, messageText, contacts, groups]);
 
   const handleCopyMessage = () => {
     navigator.clipboard.writeText(messageText).then(() => {
@@ -1645,9 +1660,41 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
               }
             </button>
           </div>
+          {protocol?.active && protocolExempt && (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              Permitido en protocolo — este subtipo envía sin confirmación extra
+            </div>
+          )}
         </div>
         </section>
       </div>
+
+      <AlertDialog open={confirmSendOpen} onOpenChange={setConfirmSendOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-red-600" />
+              ¿Está seguro de enviar?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-relaxed">
+              Hay un protocolo activo. Derivar sin estar seguros puede hacer que las áreas no funcionen bien.
+              Confirmá solo si corresponde enviar este reclamo ahora.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmSendOpen(false);
+                doSend();
+              }}
+            >
+              Sí, enviar igual
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -2628,6 +2675,8 @@ export default function App() {
   const [catalogPrefill, setCatalogPrefill] = useState(null);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [derivationStatus, setDerivationStatus] = useState(null); // 'derivar' | 'no-derivar' | 'no-catalogado' | null
+  const [protocol, setProtocol] = useState(DEFAULT_PROTOCOL);
+  const [protocolInfoOpen, setProtocolInfoOpen] = useState(false);
 
   const filteredShipments = useMemo(() => {
     if (!historySearch.trim()) return shipments;
@@ -2731,6 +2780,20 @@ export default function App() {
     }
   }, [showToast]);
 
+  const loadProtocol = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('protocol_settings')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      setProtocol(normalizeProtocolRow(data));
+    } catch (err) {
+      console.error('Error al cargar protocolo:', err);
+    }
+  }, []);
+
   const handleAddSubtipoToCatalog = (subtipo, tipo) => {
     setCatalogPrefill({
       tipo: tipo || 'RECLAMO',
@@ -2779,7 +2842,29 @@ export default function App() {
     loadGroups();
     loadShipments();
     loadCatalog();
-  }, [loadContacts, loadGroups, loadShipments, loadCatalog]);
+    loadProtocol();
+  }, [loadContacts, loadGroups, loadShipments, loadCatalog, loadProtocol]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('protocol_settings_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'protocol_settings' },
+        (payload) => {
+          if (payload.new) {
+            setProtocol(normalizeProtocolRow(payload.new));
+          } else {
+            loadProtocol();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadProtocol]);
 
   useEffect(() => {
     let failedCount = 0;
@@ -3024,6 +3109,7 @@ export default function App() {
   return (
     <TooltipProvider>
       <div className={`min-h-screen flex flex-col transition-all duration-500 overflow-x-clip
+        ${protocol?.active ? 'border-2 border-red-600/80' : ''}
         ${derivationStatus === 'derivar' 
           ? 'bg-gradient-to-br from-emerald-500/[0.12] via-background to-emerald-500/[0.04] dark:from-emerald-950/30 dark:via-background dark:to-emerald-950/10' 
           : derivationStatus === 'no-derivar' 
@@ -3036,7 +3122,9 @@ export default function App() {
         <div
           id="pai-app-header"
           ref={headerRef}
-          className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-sm"
+          className={`sticky top-0 z-40 bg-background/95 backdrop-blur-md shadow-sm ${
+            protocol?.active ? 'border-b-2 border-red-600' : 'border-b border-border/70'
+          }`}
         >
         <div className="max-w-6xl mx-auto w-full px-4 pt-4 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-6 border-b-2 border-[#003b73] msf-header-container">
           <div className="flex flex-col gap-1.5 min-w-0 w-full sm:w-auto sm:flex-1">
@@ -3152,6 +3240,11 @@ export default function App() {
         </div>
         </div>
 
+        <ProtocolBanner
+          protocol={protocol}
+          onOpen={() => setProtocolInfoOpen(true)}
+        />
+
         {/* ── Main content (solo el flujo de envío de 2 pasos) ── */}
         <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 overflow-x-clip relative min-w-0">
           {isDraggingFile && (
@@ -3198,6 +3291,7 @@ export default function App() {
                 groups={loadingGroups ? [] : groups}
                 shipments={shipments}
                 subtypesCatalog={subtypesCatalog}
+                protocol={protocol}
                 onAddSubtipoToCatalog={handleAddSubtipoToCatalog}
                 onBack={() => {
                   setFile(null);
@@ -3320,12 +3414,15 @@ export default function App() {
               <DialogDescription>Gestioná los destinatarios del protocolo y el estado de la conexión a WhatsApp.</DialogDescription>
             </DialogHeader>
             <Tabs value={configTab} onValueChange={setConfigTab} className="w-full mt-2">
-              <TabsList className="grid grid-cols-3 max-w-lg mx-auto mb-6">
+              <TabsList className="grid grid-cols-2 sm:grid-cols-4 max-w-2xl mx-auto mb-6 h-auto gap-1 p-1">
                 <TabsTrigger value="contacts" className="gap-2 text-sm">
                   <Users className="w-4 h-4" /> Contactos
                 </TabsTrigger>
                 <TabsTrigger value="groups" className="gap-2 text-sm">
                   <Users className="w-4 h-4 opacity-60" /> Grupos
+                </TabsTrigger>
+                <TabsTrigger value="protocolo" className="gap-2 text-sm">
+                  <ShieldAlert className="w-4 h-4" /> Protocolo
                 </TabsTrigger>
                 <TabsTrigger value="status" className="gap-2 text-sm">
                   <Settings className="w-4 h-4" /> WhatsApp
@@ -3352,6 +3449,16 @@ export default function App() {
                     botStatus={botStatus}
                   />
                 )}
+              </TabsContent>
+
+              <TabsContent value="protocolo" className="outline-none">
+                <ProtocolConfigTab
+                  protocol={protocol}
+                  subtypesCatalog={subtypesCatalog}
+                  supabase={supabase}
+                  showToast={showToast}
+                  onSaved={setProtocol}
+                />
               </TabsContent>
 
               <TabsContent value="status" className="outline-none">
@@ -3622,6 +3729,12 @@ export default function App() {
         )}
 
         {toast && <Toast key={toast.id} message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+        <ProtocolInfoDialog
+          open={protocolInfoOpen}
+          onOpenChange={setProtocolInfoOpen}
+          protocol={protocol}
+        />
 
         <SubtypesCatalogDialog
           open={catalogOpen}
