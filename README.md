@@ -142,3 +142,7 @@ Hugging Face apaga los Spaces gratuitos si no reciben visitas en 48 horas. Para 
 4. Arrastra o selecciona tu archivo PDF.
 5. Haz clic en **Enviar por WhatsApp**.
 6. El panel subirá el PDF a Supabase Storage y seguidamente disparará el webhook hacia Hugging Face. El destinatario recibirá el PDF al instante.
+
+## Related
+
+Profile: https://github.com/CynarJulep
