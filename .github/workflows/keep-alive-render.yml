@@ -1,0 +1,25 @@
+# Keep-alive del backend Render (plan free ~15 min de idle).
+# Respaldo del scheduled function de Netlify: pega /ping cada 10 minutos.
+name: Keep-alive Render
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping PAI backend
+        run: |
+          set -e
+          for url in \
+            "https://whatsapp-pdf-bot-backend.onrender.com/ping" \
+            "https://whatsapp-licencias-bot.onrender.com/ping"
+          do
+            echo "→ $url"
+            curl -fsS --max-time 25 -H "Accept: application/json" "$url" || echo "WARN: falló $url"
+            echo
+          done

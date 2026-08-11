@@ -602,7 +602,7 @@ setInterval(async () => {
 // Express Endpoint Webhook
 // ----------------------------------------------------
 
-// Ping liviano para keep-alive externo (cron / UptimeRobot)
+# Ping liviano para keep-alive externo (cron / UptimeRobot / Netlify scheduled / GitHub Actions)
 app.get('/ping', (req, res) => {
     res.status(200).json({
         ok: true,
