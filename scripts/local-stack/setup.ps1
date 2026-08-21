@@ -50,8 +50,15 @@ if (-not (Test-Path $envFile)) {
     }
     if ($lines.Count -eq 0) { throw 'Render returned no env vars (check API key)' }
     $lines.Add('SESSION_ID=pai') | Out-Null
-    Set-Content -Path $envFile -Value $lines -Encoding utf8
-    Write-Host ("Created .env from Render ({0} lines). Do not commit it." -f $lines.Count)
+    # Local stack runs on this PC: process SAC jobs in-process (not external worker).
+    $filtered = New-Object System.Collections.Generic.List[string]
+    foreach ($line in $lines) {
+      if ($line -match '^SAC_PROCESS_JOBS=') { continue }
+      $filtered.Add($line) | Out-Null
+    }
+    $filtered.Add('SAC_PROCESS_JOBS=true') | Out-Null
+    Set-Content -Path $envFile -Value $filtered -Encoding utf8
+    Write-Host ("Created .env from Render ({0} lines). Do not commit it." -f $filtered.Count)
   } elseif (Test-Path $example) {
     Copy-Item $example $envFile
     Write-Host 'Created .env from .env.example - fill SUPABASE_* and the rest.'

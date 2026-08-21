@@ -23,6 +23,18 @@ Los quick tunnels de Cloudflare sí rotan al reiniciar. Al arrancar, `wa-tunnels
 
 Netlify (`api-proxy` / `sac-proxy`) lee ese JSON en cada request (cache ~15s). Si el tunnel se reinicia, en segundos el sitio vuelve a apuntar solo — sin tocar Netlify a mano.
 
+## SAC (buscar reclamos)
+
+Con el stack local, `SAC_PROCESS_JOBS` debe ser **`true`** (el bot procesa Playwright acá).
+En Render free a veces estaba en `false` porque usaban worker externo en la PC; ahora el bot YA corre en la PC.
+
+Si la búsqueda queda en “Esperando al worker local…”, revisá `.env` y reiniciá:
+
+```powershell
+# en .env: SAC_PROCESS_JOBS=true
+npx pm2 restart wa-pai --update-env
+```
+
 ## Setup (una vez)
 
 ```powershell
