@@ -1,14 +1,8 @@
 /**
- * Keep-alive del backend en Render (plan free).
- * Sin HTTP periódico, Render hiberna ~15 min y el bot “se apaga”.
- * Esta función corre cada 10 minutos en deploys publicados de Netlify.
+ * Keep-alive: pega /ping a los backends publicados en el registry (o env).
+ * Ya no depende de Render free; sirve para detectar si el tunnel local cayó.
  */
-const BACKENDS = [
-  process.env.BACKEND_URL || process.env.RENDER_BACKEND_URL || 'https://whatsapp-pdf-bot-backend.onrender.com',
-  process.env.RENDER_LICENCIAS_URL || 'https://whatsapp-licencias-bot.onrender.com',
-]
-  .map((url) => String(url || '').replace(/\/$/, ''))
-  .filter(Boolean);
+import { resolveBackendUrl } from './lib/resolve-backend.mjs';
 
 async function pingBackend(baseUrl) {
   const url = `${baseUrl}/ping`;
@@ -47,14 +41,17 @@ export default async (req) => {
     /* invoke manual sin body */
   }
 
-  const unique = [...new Set(BACKENDS)];
+  const pai = await resolveBackendUrl('pai');
+  const licencias = await resolveBackendUrl('licencias');
+  const unique = [...new Set([pai, licencias].filter(Boolean))];
+
   const results = [];
   for (const base of unique) {
     results.push(await pingBackend(base));
   }
 
-  const allOk = results.every((r) => r.ok);
-  console.log('[keep-alive-render]', JSON.stringify({ nextRun, results }));
+  const allOk = results.length > 0 && results.every((r) => r.ok);
+  console.log('[keep-alive]', JSON.stringify({ nextRun, results }));
 
   return new Response(JSON.stringify({ ok: allOk, nextRun, results }), {
     status: allOk ? 200 : 502,

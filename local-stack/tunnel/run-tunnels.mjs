@@ -1,18 +1,27 @@
 /**
- * Cloudflare Quick Tunnels (gratis, sin dominio).
- * Publica PAI (:3001) y Licencias (:3002) y guarda URLs en local-stack/state/tunnels.json
- * Opcional: actualiza env de Netlify si hay NETLIFY_AUTH_TOKEN + NETLIFY_SITE_ID.
+ * Cloudflare Quick Tunnels (gratis).
+ * Publica PAI + Licencias y registra URLs en:
+ *  1) local-stack/state/tunnels.json
+ *  2) Supabase Storage público (pdfs/runtime/backend-endpoints.json)
+ *
+ * Netlify lee el registry en cada request → ac-pai-wp.netlify.app queda estático.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
+dotenv.config({ path: path.join(ROOT, '.env') });
+
 const STATE_DIR = path.join(__dirname, '..', 'state');
 const TUNNELS_FILE = path.join(STATE_DIR, 'tunnels.json');
 const BIN_DIR = path.join(__dirname, '..', 'bin');
+const REGISTRY_BUCKET = process.env.BACKEND_REGISTRY_BUCKET || 'runtime';
+const REGISTRY_OBJECT = process.env.BACKEND_REGISTRY_OBJECT || 'backend-endpoints.json';
 
 const PAI_PORT = Number(process.env.PAI_PORT || 3001);
 const LICENCIAS_PORT = Number(process.env.LICENCIAS_PORT || 3002);
@@ -33,7 +42,45 @@ function resolveCloudflared() {
   return 'cloudflared';
 }
 
-function writeTunnels( partial ) {
+function getSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+async function publishRegistry(tunnels) {
+  const supabase = getSupabase();
+  if (!supabase) {
+    console.warn('[tunnels] Sin SUPABASE_* — no se publica registry (Netlify seguirá con env fijo)');
+    return;
+  }
+
+  const payload = {
+    pai: tunnels.pai || null,
+    licencias: tunnels.licencias || null,
+    updatedAt: tunnels.updatedAt || new Date().toISOString(),
+  };
+  const body = Buffer.from(JSON.stringify(payload, null, 2), 'utf8');
+
+  const { error } = await supabase.storage
+    .from(REGISTRY_BUCKET)
+    .upload(REGISTRY_OBJECT, body, {
+      contentType: 'application/json',
+      upsert: true,
+      cacheControl: '15',
+    });
+
+  if (error) {
+    console.warn('[tunnels] registry upload failed:', error.message);
+    return;
+  }
+
+  const publicUrl = `${process.env.SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/public/${REGISTRY_BUCKET}/${REGISTRY_OBJECT}`;
+  console.log('[tunnels] registry OK →', publicUrl);
+}
+
+function writeTunnels(partial) {
   ensureDirs();
   let current = {};
   try {
@@ -47,39 +94,7 @@ function writeTunnels( partial ) {
   fs.writeFileSync(TUNNELS_FILE, JSON.stringify(next, null, 2));
   console.log('[tunnels] state →', TUNNELS_FILE);
   console.log('[tunnels]', JSON.stringify({ pai: next.pai, licencias: next.licencias }, null, 2));
-  void maybeSyncNetlify(next);
-}
-
-async function maybeSyncNetlify(tunnels) {
-  const token = process.env.NETLIFY_AUTH_TOKEN;
-  const siteId = process.env.NETLIFY_SITE_ID;
-  if (!token || !siteId || !tunnels.pai) {
-    return;
-  }
-  try {
-    const res = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        env: {
-          BACKEND_URL: tunnels.pai,
-          RENDER_BACKEND_URL: tunnels.pai,
-          RENDER_LICENCIAS_URL: tunnels.licencias || '',
-        },
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      console.warn('[tunnels] Netlify sync failed:', res.status, text.slice(0, 300));
-      return;
-    }
-    console.log('[tunnels] Netlify env actualizado (BACKEND_URL → tunnel PAI)');
-  } catch (err) {
-    console.warn('[tunnels] Netlify sync error:', err.message);
-  }
+  void publishRegistry(next);
 }
 
 function startTunnel(name, port) {
@@ -107,7 +122,6 @@ function startTunnel(name, port) {
 
   child.on('exit', (code, signal) => {
     console.warn(`[tunnels] ${name} exited code=${code} signal=${signal}`);
-    // PM2 reinicia el proceso completo; si un hijo solo muere, matamos el padre
     process.exit(code || 1);
   });
 
@@ -130,4 +144,4 @@ try {
 startTunnel('pai', PAI_PORT);
 startTunnel('licencias', LICENCIAS_PORT);
 
-console.log('[tunnels] corriendo (quick tunnels Cloudflare, $0)');
+console.log('[tunnels] corriendo — registry Supabase = URL estable para Netlify');

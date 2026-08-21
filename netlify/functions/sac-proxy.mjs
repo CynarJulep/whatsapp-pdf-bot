@@ -1,9 +1,4 @@
-const BACKEND_URL = (
-  process.env.BACKEND_URL ||
-  process.env.RENDER_BACKEND_URL ||
-  process.env.RAILWAY_URL ||
-  'https://whatsapp-pdf-bot-backend.onrender.com'
-).replace(/\/$/, '');
+import { resolveBackendUrl } from './lib/resolve-backend.mjs';
 
 const SAC_AUTOMATION_TOKEN = process.env.SAC_AUTOMATION_TOKEN || '';
 
@@ -107,6 +102,7 @@ export default async (req, context) => {
     }, { 'Retry-After': '15' });
   }
 
+  const BACKEND_URL = await resolveBackendUrl('pai');
   const target = `${BACKEND_URL}${targetPath}${url.search}`;
 
   const headers = new Headers();

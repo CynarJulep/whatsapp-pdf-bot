@@ -1,12 +1,7 @@
-const BACKEND_URL = (
-  process.env.BACKEND_URL ||
-  process.env.RENDER_BACKEND_URL ||
-  process.env.RAILWAY_URL ||
-  'https://whatsapp-pdf-bot-backend.onrender.com'
-).replace(/\/$/, '');
+import { resolveBackendUrl } from './lib/resolve-backend.mjs';
 
 /**
- * Proxy genérico /api/* → backend (local tunnel o Render).
+ * Proxy genérico /api/* → backend (tunnel local vía registry Supabase, o env).
  * /api/sac queda en sac-proxy.mjs (force=true en netlify.toml).
  */
 export default async (req) => {
@@ -42,6 +37,7 @@ export default async (req) => {
     }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
 
+  const BACKEND_URL = await resolveBackendUrl('pai');
   const dest = `${BACKEND_URL}${targetPath}${incoming.search}`;
   const headers = new Headers(req.headers);
   headers.delete('host');
@@ -75,4 +71,3 @@ export default async (req) => {
     });
   }
 };
-

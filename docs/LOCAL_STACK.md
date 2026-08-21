@@ -13,6 +13,16 @@ Espejo de los 2 servicios Render (`pai` + `licencias`) en esta PC, con métricas
 
 Auto-reinicio: PM2. Auto-arranque al loguear: Task Scheduler (`npm run local:autostart`).
 
+## URL estática (sin pagar dominio)
+
+La URL pública **no cambia**: `https://ac-pai-wp.netlify.app`
+
+Los quick tunnels de Cloudflare sí rotan al reiniciar. Al arrancar, `wa-tunnels` publica las URLs actuales en Supabase Storage:
+
+`https://hltyozdvcqfmvqmyrlva.supabase.co/storage/v1/object/public/runtime/backend-endpoints.json`
+
+Netlify (`api-proxy` / `sac-proxy`) lee ese JSON en cada request (cache ~15s). Si el tunnel se reinicia, en segundos el sitio vuelve a apuntar solo — sin tocar Netlify a mano.
+
 ## Setup (una vez)
 
 ```powershell
