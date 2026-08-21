@@ -498,11 +498,18 @@ async function runSacSingleClaimFetch({
           '--single-process',
           '--js-flags=--max-old-space-size=128'
         ]
-      : ['--disable-dev-shm-usage'];
+      : [
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--mute-audio',
+          '--no-first-run',
+          '--no-default-browser-check',
+        ];
 
+    // PC compartida: Chromium siempre invisible (sin ventana / sin flash).
     const browser = await playwright.chromium.launch({
-      headless: SAC_HEADLESS,
-      args: chromiumArgs
+      headless: true,
+      args: [...chromiumArgs, '--headless=new'],
     });
 
     try {

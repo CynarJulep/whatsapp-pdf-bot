@@ -27,7 +27,11 @@ module.exports = {
         ...sharedEnv,
         PORT: 3001,
         SESSION_ID: 'pai',
+        // PC compartida: sin ventanas de Chromium / sin worker externo
+        SAC_HEADLESS: 'true',
+        SAC_PROCESS_JOBS: 'true',
       },
+      windowsHide: true,
     },
     {
       name: 'wa-licencias',
@@ -48,6 +52,7 @@ module.exports = {
         SAC_FEATURE_ENABLED: 'false',
         SAC_PROCESS_JOBS: 'false',
       },
+      windowsHide: true,
     },
     {
       name: 'wa-dashboard',
@@ -64,6 +69,7 @@ module.exports = {
         PAI_URL: 'http://127.0.0.1:3001',
         LICENCIAS_URL: 'http://127.0.0.1:3002',
       },
+      windowsHide: true,
     },
     {
       name: 'wa-tunnels',
@@ -80,6 +86,7 @@ module.exports = {
         PAI_PORT: 3001,
         LICENCIAS_PORT: 3002,
       },
+      windowsHide: true,
     },
   ],
 };

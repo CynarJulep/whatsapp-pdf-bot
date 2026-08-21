@@ -22,7 +22,8 @@ if (-not (Test-Path $cf)) {
   & (Join-Path $PSScriptRoot 'setup.ps1') -ProjectDir $ProjectDir
 }
 
-Write-Host '==> PM2 start ecosystem'
+Write-Host '==> PM2 start ecosystem (ventanas ocultas)'
+& $pm2 delete ecosystem.config.cjs 2>$null
 & $pm2 start ecosystem.config.cjs
 & $pm2 save
 

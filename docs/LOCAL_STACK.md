@@ -23,6 +23,18 @@ Los quick tunnels de Cloudflare sí rotan al reiniciar. Al arrancar, `wa-tunnels
 
 Netlify (`api-proxy` / `sac-proxy`) lee ese JSON en cada request (cache ~15s). Si el tunnel se reinicia, en segundos el sitio vuelve a apuntar solo — sin tocar Netlify a mano.
 
+## Sin ventanas (PC compartida)
+
+Chromium SAC corre **siempre headless** (invisible). PM2 y cloudflared usan `windowsHide`.
+El autoarranque es un `.vbs` silencioso (sin flash de terminal).
+
+```powershell
+npm run local:autostart   # reinstala el launcher invisible
+npx pm2 restart all
+```
+
+No uses `SAC_HEADLESS=false` en esta PC.
+
 ## SAC (buscar reclamos)
 
 Con el stack local, `SAC_PROCESS_JOBS` debe ser **`true`** (el bot procesa Playwright acá).

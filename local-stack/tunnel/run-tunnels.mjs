@@ -106,6 +106,8 @@ function startTunnel(name, port) {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
+    shell: false,
+    detached: false,
   });
 
   const onChunk = (buf) => {
