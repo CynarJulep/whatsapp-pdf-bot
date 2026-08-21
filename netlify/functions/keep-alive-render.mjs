@@ -4,7 +4,7 @@
  * Esta función corre cada 10 minutos en deploys publicados de Netlify.
  */
 const BACKENDS = [
-  process.env.RENDER_BACKEND_URL || 'https://whatsapp-pdf-bot-backend.onrender.com',
+  process.env.BACKEND_URL || process.env.RENDER_BACKEND_URL || 'https://whatsapp-pdf-bot-backend.onrender.com',
   process.env.RENDER_LICENCIAS_URL || 'https://whatsapp-licencias-bot.onrender.com',
 ]
   .map((url) => String(url || '').replace(/\/$/, ''))

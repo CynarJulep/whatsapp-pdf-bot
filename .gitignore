@@ -16,4 +16,7 @@ seed_contacts.js
 contacts.vcf
 .sac-session/
 graphify-out/
+local-stack/state/
+local-stack/bin/
+*.exe
 

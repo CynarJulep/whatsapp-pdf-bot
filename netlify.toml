@@ -29,9 +29,10 @@
   force = true
 
 # Proxy genérico del resto del backend (status, send-pdf, groups, etc.)
+# Destino real = env BACKEND_URL / RENDER_BACKEND_URL (tunnel local o Render).
 [[redirects]]
   from = "/api/*"
-  to = "https://whatsapp-pdf-bot-backend.onrender.com/:splat"
+  to = "/.netlify/functions/api-proxy/:splat"
   status = 200
   force = true
 

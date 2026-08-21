@@ -602,7 +602,7 @@ setInterval(async () => {
 // Express Endpoint Webhook
 // ----------------------------------------------------
 
-# Ping liviano para keep-alive externo (cron / UptimeRobot / Netlify scheduled / GitHub Actions)
+// Ping liviano para keep-alive externo (cron / UptimeRobot / Netlify scheduled / GitHub Actions)
 app.get('/ping', (req, res) => {
     res.status(200).json({
         ok: true,
@@ -645,8 +645,44 @@ app.get('/status', (req, res) => {
             } catch (_) {
                 return null;
             }
-        })()
+        })(),
+        uptime_s: Math.floor(process.uptime()),
+        memory_rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
     });
+});
+
+/** Prometheus text exposition (scrape local dashboard / Prometheus). */
+app.get('/metrics', (req, res) => {
+    const mem = process.memoryUsage();
+    const lines = [
+        '# HELP wa_bot_up 1 if process is serving HTTP',
+        '# TYPE wa_bot_up gauge',
+        `wa_bot_up{session_id="${SESSION_ID}"} 1`,
+        '# HELP wa_bot_connected 1 if WhatsApp socket is connected',
+        '# TYPE wa_bot_connected gauge',
+        `wa_bot_connected{session_id="${SESSION_ID}"} ${isConnected ? 1 : 0}`,
+        '# HELP wa_bot_connecting 1 if WhatsApp is connecting',
+        '# TYPE wa_bot_connecting gauge',
+        `wa_bot_connecting{session_id="${SESSION_ID}"} ${isConnecting ? 1 : 0}`,
+        '# HELP wa_bot_has_qr 1 if a QR is pending',
+        '# TYPE wa_bot_has_qr gauge',
+        `wa_bot_has_qr{session_id="${SESSION_ID}"} ${qrCode ? 1 : 0}`,
+        '# HELP wa_bot_consecutive_failures reconnect failure streak',
+        '# TYPE wa_bot_consecutive_failures gauge',
+        `wa_bot_consecutive_failures{session_id="${SESSION_ID}"} ${consecutiveFailures}`,
+        '# HELP wa_bot_uptime_seconds process uptime',
+        '# TYPE wa_bot_uptime_seconds counter',
+        `wa_bot_uptime_seconds{session_id="${SESSION_ID}"} ${Math.floor(process.uptime())}`,
+        '# HELP wa_bot_memory_rss_bytes resident set size',
+        '# TYPE wa_bot_memory_rss_bytes gauge',
+        `wa_bot_memory_rss_bytes{session_id="${SESSION_ID}"} ${mem.rss}`,
+        '# HELP wa_bot_memory_heap_used_bytes heap used',
+        '# TYPE wa_bot_memory_heap_used_bytes gauge',
+        `wa_bot_memory_heap_used_bytes{session_id="${SESSION_ID}"} ${mem.heapUsed}`,
+        '',
+    ];
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.status(200).send(lines.join('\n'));
 });
 
 // Endpoint to list all WhatsApp groups the bot is part of

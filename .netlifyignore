@@ -1,0 +1,15 @@
+node_modules
+frontend/node_modules
+local-stack/bin
+local-stack/state
+.git
+.pm2
+.env
+.env.*
+!.env.example
+graphify-out
+.sac-session
+*.exe
+.cursor
+.agents
+dist

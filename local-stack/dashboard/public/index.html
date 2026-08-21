@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WhatsApp Local Stack</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --panel: #141414;
+      --border: #27272a;
+      --text: #fafafa;
+      --muted: #a1a1aa;
+      --ok: #22c55e;
+      --bad: #ef4444;
+      --warn: #eab308;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    header p {
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    main {
+      display: grid;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem 2rem;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.1rem;
+    }
+    .card h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.35rem 0;
+      font-size: 0.9rem;
+      border-bottom: 1px solid #1f1f22;
+    }
+    .row:last-child { border-bottom: 0; }
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 0.4rem;
+      background: var(--muted);
+    }
+    .dot.ok { background: var(--ok); }
+    .dot.bad { background: var(--bad); }
+    .dot.warn { background: var(--warn); }
+    a { color: #93c5fd; word-break: break-all; }
+    .span-2 { grid-column: 1 / -1; }
+    pre {
+      margin: 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      max-height: 220px;
+      overflow: auto;
+    }
+    #ts { color: var(--muted); font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WhatsApp Local Stack</h1>
+    <p>Métricas en vivo · gratis · auto-reinicio con PM2 · <span id="ts">—</span></p>
+  </header>
+  <main>
+    <section class="card" id="card-pai">
+      <h2>Bot PAI</h2>
+      <div class="body">Cargando…</div>
+    </section>
+    <section class="card" id="card-lic">
+      <h2>Bot Licencias</h2>
+      <div class="body">Cargando…</div>
+    </section>
+    <section class="card span-2" id="card-tunnels">
+      <h2>Tunnels públicos (Cloudflare free)</h2>
+      <div class="body">Cargando…</div>
+    </section>
+    <section class="card span-2">
+      <h2>Prometheus /metrics (merged)</h2>
+      <pre id="metrics">—</pre>
+    </section>
+  </main>
+  <script>
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c]);
+    }
+
+    function botHtml(label, entry) {
+      const st = entry?.status;
+      const data = st?.data;
+      const up = st?.ok;
+      const connected = data?.connected;
+      const cls = !up ? 'bad' : connected ? 'ok' : 'warn';
+      const state = !up ? 'DOWN' : connected ? 'CONNECTED' : (data?.connecting ? 'CONNECTING' : 'DISCONNECTED');
+      return `
+        <div class="row"><span><span class="dot ${cls}"></span>${esc(state)}</span><span>${esc(label)}</span></div>
+        <div class="row"><span>session</span><span>${esc(data?.session_id || '—')}</span></div>
+        <div class="row"><span>uptime</span><span>${esc(data?.uptime_s != null ? data.uptime_s + 's' : '—')}</span></div>
+        <div class="row"><span>mem RSS</span><span>${esc(data?.memory_rss_mb != null ? data.memory_rss_mb + ' MB' : '—')}</span></div>
+        <div class="row"><span>failures</span><span>${esc(data?.consecutive_failures ?? '—')}</span></div>
+        <div class="row"><span>WA ver</span><span>${esc(data?.wa_version || '—')}</span></div>
+        <div class="row"><span>local</span><span><a href="${esc(entry?.url)}/status" target="_blank">${esc(entry?.url)}</a></span></div>
+      `;
+    }
+
+    async function tick() {
+      try {
+        const res = await fetch('/api/snapshot', { cache: 'no-store' });
+        const snap = await res.json();
+        document.getElementById('ts').textContent = snap.ts;
+        document.querySelector('#card-pai .body').innerHTML = botHtml('pai', snap.bots.pai);
+        document.querySelector('#card-lic .body').innerHTML = botHtml('licencias', snap.bots.licencias);
+
+        const t = snap.tunnels;
+        const tb = document.querySelector('#card-tunnels .body');
+        if (!t || (!t.pai && !t.licencias)) {
+          tb.innerHTML = '<p style="color:var(--muted);margin:0;font-size:0.9rem">Todavía no hay tunnels. El proceso <code>wa-tunnels</code> los crea solo (cloudflared free).</p>';
+        } else {
+          tb.innerHTML = `
+            <div class="row"><span>PAI público</span><span>${t.pai ? `<a href="${esc(t.pai)}" target="_blank">${esc(t.pai)}</a>` : '—'}</span></div>
+            <div class="row"><span>Licencias público</span><span>${t.licencias ? `<a href="${esc(t.licencias)}" target="_blank">${esc(t.licencias)}</a>` : '—'}</span></div>
+            <div class="row"><span>actualizado</span><span>${esc(t.updatedAt || '—')}</span></div>
+          `;
+        }
+
+        const m = [snap.metrics_text?.pai, snap.metrics_text?.licencias].filter(Boolean).join('\n');
+        document.getElementById('metrics').textContent = m || '(sin métricas todavía)';
+      } catch (e) {
+        document.getElementById('ts').textContent = 'error: ' + e.message;
+      }
+    }
+
+    tick();
+    setInterval(tick, 5000);
+  </script>
+</body>
+</html>
