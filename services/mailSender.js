@@ -152,6 +152,29 @@ function textToSimpleHtml(text) {
     ].join('');
 }
 
+function makeUniqueSendId() {
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Asunto base + marca única para que Gmail/Zimbra abran un hilo nuevo
+ * (si no, agrupan todo bajo el mismo correo y ocultan el cuerpo tras “…”).
+ */
+function makeUniqueSubject(baseSubject) {
+    const base = String(baseSubject || 'Solicitud').trim() || 'Solicitud';
+    const now = new Date();
+    const stamp = now.toLocaleString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    });
+    return `${base} · ${stamp}`;
+}
+
 /**
  * @param {{ to: string, subject: string, text: string, html?: string, pdfBuffer: Buffer, fileName: string }} opts
  */
@@ -164,10 +187,12 @@ async function sendClaimEmail(opts) {
         throw new Error('Falta el PDF adjunto.');
     }
     const from = process.env.SMTP_FROM || process.env.SMTP_USER;
-    const subject = opts.subject || 'Solicitud';
+    const sendId = makeUniqueSendId();
+    const subject = makeUniqueSubject(opts.subject || 'Solicitud');
     const text = opts.text || '';
     const html = opts.html || textToSimpleHtml(text);
     const fileName = opts.fileName || 'reclamo.pdf';
+    const domain = String(from).includes('@') ? String(from).split('@')[1] : 'santafeciudad.gov.ar';
 
     const transporter = getTransporter();
     const info = await transporter.sendMail({
@@ -176,6 +201,13 @@ async function sendClaimEmail(opts) {
         subject,
         text,
         html,
+        // Forzar correo nuevo (sin hilo / reply)
+        messageId: `<pai-${sendId}@${domain}>`,
+        headers: {
+            'X-Entity-Ref-ID': sendId,
+            'X-Auto-Response-Suppress': 'All',
+        },
+        // No setear inReplyTo / references
         attachments: [
             {
                 filename: fileName,
@@ -187,6 +219,7 @@ async function sendClaimEmail(opts) {
 
     return {
         messageId: info.messageId || null,
+        subject,
         response: info.response || null,
     };
 }
@@ -198,6 +231,7 @@ module.exports = {
     buildClaimEmailText,
     buildClaimEmailHtml,
     buildClaimEmailSubject,
+    makeUniqueSubject,
     textToSimpleHtml,
     sendClaimEmail,
 };
