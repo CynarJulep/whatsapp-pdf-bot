@@ -1639,6 +1639,149 @@ app.post('/send-pdf', requireApiKey, async (req, res) => {
     }
 });
 
+/**
+ * Envío de reclamo por correo (SMTP Zimbra / informes@).
+ * Body: { to, fileName, displayName?, solicitudNro?, subtipo?, subject?, text?, html?,
+ *         ubicacion?, descripcion?, fecha?, usuarioCarga? }
+ */
+app.post('/send-email', requireApiKey, async (req, res) => {
+    const {
+        to,
+        fileName,
+        displayName,
+        solicitudNro,
+        subtipo,
+        subject,
+        text,
+        html,
+        ubicacion,
+        descripcion,
+        fecha,
+        usuarioCarga,
+    } = req.body || {};
+
+    let mailSender;
+    try {
+        mailSender = require('./services/mailSender');
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: 'Módulo de correo no disponible.',
+            error: err.message,
+        });
+    }
+
+    if (!mailSender.isSmtpConfigured()) {
+        return res.status(503).json({
+            success: false,
+            message: 'El envío por correo no está configurado en este servidor (SMTP_*).',
+        });
+    }
+
+    const toClean = String(to || '').trim();
+    if (!mailSender.isValidEmail(toClean)) {
+        return res.status(400).json({
+            success: false,
+            message: 'Parámetro "to" inválido o faltante.',
+        });
+    }
+    if (!fileName) {
+        return res.status(400).json({
+            success: false,
+            message: 'Parámetro "fileName" es requerido (path en Storage pdfs).',
+        });
+    }
+
+    const claimInfo = {
+        solicitudNro: solicitudNro || null,
+        subtipo: subtipo || null,
+        ubicacion: ubicacion || null,
+        descripcion: descripcion || null,
+        fecha: fecha || null,
+    };
+    const bodyText = (typeof text === 'string' && text.trim())
+        ? text
+        : mailSender.buildClaimEmailText(claimInfo);
+    const mailSubject = (typeof subject === 'string' && subject.trim())
+        ? subject.trim()
+        : mailSender.buildClaimEmailSubject(claimInfo);
+    const defaultText = mailSender.buildClaimEmailText(claimInfo);
+    const mailHtml = (typeof html === 'string' && html.trim())
+        ? html
+        : (bodyText.trim() === defaultText.trim()
+            ? mailSender.buildClaimEmailHtml(claimInfo)
+            : mailSender.textToSimpleHtml(bodyText));
+    const attachName = displayName || fileName;
+
+    try {
+        console.log(`[Email] Downloading "${fileName}" from Storage for ${toClean}...`);
+        const { data: storageBlob, error: downloadError } = await supabase.storage
+            .from('pdfs')
+            .download(fileName);
+
+        if (downloadError || !storageBlob) {
+            console.error('[Email] Storage download error:', downloadError);
+            return res.status(500).json({
+                success: false,
+                message: `Error al descargar el PDF: ${downloadError?.message || 'Archivo no encontrado'}`,
+            });
+        }
+
+        const arrayBuffer = await storageBlob.arrayBuffer();
+        const fileBuffer = Buffer.from(arrayBuffer);
+
+        console.log(`[Email] Sending claim PDF to ${toClean}...`);
+        const result = await mailSender.sendClaimEmail({
+            to: toClean,
+            subject: mailSubject,
+            text: bodyText,
+            html: mailHtml,
+            pdfBuffer: fileBuffer,
+            fileName: attachName,
+        });
+
+        await logShipment({
+            contact_name: toClean,
+            contact_phone: toClean,
+            solicitud_nro: solicitudNro || null,
+            subtipo: subtipo || null,
+            file_name: attachName || null,
+            usuario_carga: usuarioCarga || null,
+            protocol_override: false,
+            status: 'success',
+            message_text: bodyText,
+            is_group: false,
+            group_jid: null,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Correo enviado exitosamente.',
+            messageId: result.messageId,
+        });
+    } catch (err) {
+        console.error('[Email] Send failed:', err);
+        await logShipment({
+            contact_name: toClean,
+            contact_phone: toClean,
+            solicitud_nro: solicitudNro || null,
+            subtipo: subtipo || null,
+            file_name: attachName || null,
+            usuario_carga: usuarioCarga || null,
+            protocol_override: false,
+            status: 'failed',
+            message_text: bodyText,
+            is_group: false,
+            group_jid: null,
+        });
+        return res.status(500).json({
+            success: false,
+            message: 'No se pudo enviar el correo.',
+            error: err.message,
+        });
+    }
+});
+
 // Force a fresh WhatsApp connection attempt (keeps credentials unless a QR is needed).
 // Soft: ends the socket WITHOUT logout — safe to refresh QR while pairing.
 app.post('/reconnect', async (req, res) => {

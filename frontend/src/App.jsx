@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
   UploadCloud, FileText, Send, Users, Settings, CheckCircle,
   AlertCircle, RefreshCw, X, Trash2, Edit, Save, UserPlus,
   Search, Moon, Sun, Wifi, WifiOff, ChevronLeft,
   Check, Plus, Loader2, Zap, MapPin, ArrowRight,
   History, Clock, ChevronDown, ChevronUp, HelpCircle, BookOpen,
-  Copy, Download, FileSearch, ShieldAlert
+  Copy, Download, FileSearch, ShieldAlert, Mail
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -38,9 +38,9 @@ import { ProtocolBanner, ProtocolInfoDialog } from '@/components/ProtocolBanner'
 import ProtocolConfigTab from '@/components/ProtocolConfigTab';
 import { DEFAULT_PROTOCOL, isProtocolExempt, normalizeProtocolRow } from '@/lib/protocol';
 
-// ── PDF.js worker ──────────────────────────────────────────────────────────────
+// ── PDF.js worker (legacy build: polyfills Map.getOrInsertComputed p/ Chrome oficina) ─
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
+  'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
   import.meta.url
 ).toString();
 
@@ -161,11 +161,58 @@ const supabase    = createClient(supabaseUrl, supabaseKey);
 const initials = (name = '') => name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
 const formatBytes = (b) => b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1048576).toFixed(2)} MB`;
 const normalizeSolicitudKey = (value = '') => String(value).replace(/[^0-9a-z]/gi, '').toLowerCase();
+const isValidEmailAddress = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim());
 const normalizePhone = (raw) => {
   let p = raw.replace(/\D/g, '');
   if (p.length === 10 && /^[123]/.test(p)) p = '549' + p;
   else if (p.length === 12 && p.startsWith('54') && p[2] !== '9') p = '549' + p.slice(2);
   return p;
+};
+
+/** Cuerpo de correo institucional (sin markdown de WhatsApp). */
+const buildClaimEmailBody = (info = {}, { fromSac = false } = {}) => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const solicitudNro = clean(info.solicitudNro);
+  const subtipo = clean(info.subtipo).toUpperCase();
+  const ubicacion = clean(info.ubicacion);
+  const isNonSac = !fromSac && !solicitudNro && !subtipo && !ubicacion && !info.areaDestino;
+  const signature = [
+    'Atentamente,',
+    '',
+    'Atención Ciudadana',
+    'Municipalidad de Santa Fe',
+  ].join('\n');
+  const contactFooter = [
+    'Por favor no conteste a este correo. Comuníquese al:',
+    '0800 777 5000',
+    '',
+    'Presencialmente en Salta 2951, Santa Fe',
+    '',
+    'Por chat en nuestro sitio web:',
+    'https://www.santafeciudad.gov.ar/',
+  ].join('\n');
+  if (isNonSac) {
+    return `Se remite el documento adjunto para su conocimiento.\n\n${signature}\n\n${contactFooter}`;
+  }
+  return [
+    'Se remite el siguiente reclamo para su conocimiento.',
+    '',
+    `Solicitud Nro: ${solicitudNro || 'No especificado'}`,
+    '',
+    `Subtipo: ${subtipo || 'No especificado'}`,
+    '',
+    `Ubicación: ${ubicacion || 'No especificada'}`,
+    '',
+    signature,
+    '',
+    contactFooter,
+  ].join('\n');
+};
+
+const buildClaimEmailSubject = (info = {}) => {
+  const nro = String(info.solicitudNro || 'sin número').replace(/\s+/g, ' ').trim();
+  const sub = info.subtipo ? ` (${String(info.subtipo).replace(/\s+/g, ' ').trim().toUpperCase()})` : '';
+  return `Solicitud ${nro}${sub}`;
 };
 
 /**
@@ -345,15 +392,17 @@ async function extractPdfInfo(file) {
 
     // Subtipo
     const subtipoMatch = fullText.match(/Subtipo[:\s\-]+([\s\S]+?)(?=(?:Descripci[oó]n|Fecha|Ubicaci[oó]n|Estado|Usuario|Prioridad|Origen|Solicitud|Tipo)[:\-]\s+|$)/i);
-    const subtipo = subtipoMatch ? subtipoMatch[1].trim() : null;
+    const subtipo = subtipoMatch ? subtipoMatch[1].replace(/\s+/g, ' ').trim() : null;
 
-    // Ubicación
+    // Ubicación (solo la dirección; sin saltos raros del PDF)
     const ubicacionMatch = fullText.match(/Ubicaci[oó]n[:\s\-]+([\s\S]+?)(?=(?:Distrito|Vecinal|Descripci[oó]n|Fecha|Estado|Usuario|Prioridad|Origen|Solicitud|Tipo|Subtipo)[:\-]\s+|$)/i);
-    const ubicacion = ubicacionMatch ? ubicacionMatch[1].trim() : null;
+    const ubicacion = ubicacionMatch
+      ? ubicacionMatch[1].split('\n')[0].replace(/\s+/g, ' ').trim()
+      : null;
 
     // Descripción
     const descripcionMatch = fullText.match(/Descripci[oó]n[:\s\-]+([\s\S]+?)(?=(?:Fecha|Ubicaci[oó]n|Estado|Usuario|Prioridad|Origen|Solicitud|Tipo|Subtipo)[:\-]\s+|$)/i);
-    const descripcion = descripcionMatch ? descripcionMatch[1].trim() : null;
+    const descripcion = descripcionMatch ? descripcionMatch[1].replace(/\s+/g, ' ').trim() : null;
 
     // Fecha
     const fechaMatch = fullText.match(/Fecha[:\s\-]+([0-9]{2}\/[0-9]{2}\/[0-9]{4}\s+[0-9]{2}:[0-9]{2})/i);
@@ -971,6 +1020,10 @@ function PreviewAndPick({ file, sacSource = null, contacts, groups = [], shipmen
   const [isEditingMessage, setIsEditingMessage] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
   const dropdownRef = useRef(null);
   const protocolExempt = isProtocolExempt(pdfInfo.subtipo, protocol?.exempt_subtypes);
   const needsProtocolConfirm = Boolean(protocol?.active) && !protocolExempt;
@@ -1212,6 +1265,74 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
     });
   };
 
+  const openEmailDialog = () => {
+    if (extracting || emailSending) return;
+    setEmailTo('');
+    setEmailBody(buildClaimEmailBody(pdfInfo, { fromSac: Boolean(sacSource || pdfInfo.fromSac) }));
+    setEmailDialogOpen(true);
+  };
+
+  const handleSendEmail = async () => {
+    const to = emailTo.trim();
+    if (!isValidEmailAddress(to)) {
+      showToast?.('Ingresá un correo válido', 'error');
+      return;
+    }
+    if (!file || emailSending) return;
+
+    setEmailSending(true);
+    try {
+      const cleanFileNameString = (str) => str.replace(/[\\/:*?"<>|]/g, '').trim();
+      let displayName = file.name;
+      if (pdfInfo?.solicitudNro) {
+        const sol = cleanFileNameString(pdfInfo.solicitudNro);
+        const sub = pdfInfo.subtipo ? cleanFileNameString(pdfInfo.subtipo.toUpperCase()) : '';
+        displayName = sub ? `${sol}(${sub}).pdf` : `${sol}.pdf`;
+      } else {
+        displayName = cleanFileNameString(file.name);
+        if (!displayName.toLowerCase().endsWith('.pdf')) displayName += '.pdf';
+      }
+
+      let storageFileName = sacSource?.storagePath || null;
+      if (!storageFileName) {
+        storageFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+        const { error: uploadError } = await supabase.storage
+          .from('pdfs')
+          .upload(storageFileName, file, { cacheControl: '3600', upsert: true });
+        if (uploadError) throw uploadError;
+      }
+
+      const res = await fetch(`${backendUrl}/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to,
+          fileName: storageFileName,
+          displayName,
+          solicitudNro: pdfInfo?.solicitudNro || null,
+          subtipo: pdfInfo?.subtipo || null,
+          ubicacion: pdfInfo?.ubicacion || null,
+          descripcion: pdfInfo?.descripcion || null,
+          fecha: pdfInfo?.fecha || null,
+          usuarioCarga: pdfInfo?.usuarioCarga || null,
+          subject: buildClaimEmailSubject(pdfInfo),
+          text: emailBody.trim() || buildClaimEmailBody(pdfInfo, { fromSac: Boolean(sacSource || pdfInfo.fromSac) }),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || `Error HTTP ${res.status}`);
+      }
+      showToast?.(`Correo enviado a ${to}`);
+      setEmailDialogOpen(false);
+    } catch (err) {
+      console.error('Email send failed:', err);
+      showToast?.(err.message || 'No se pudo enviar el correo', 'error');
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
   const handleDownloadPdf = () => {
     const url = URL.createObjectURL(file);
     const anchor = document.createElement('a');
@@ -1445,6 +1566,22 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent><p>Descargar PDF</p></TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={openEmailDialog}
+                    disabled={extracting || emailSending}
+                    aria-label="Enviar por correo"
+                  >
+                    <Mail data-icon="inline-start" />
+                    <span className="hidden sm:inline">Correo</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Enviar por correo desde informes@</p></TooltipContent>
               </Tooltip>
               <button
                 type="button"
@@ -1697,6 +1834,71 @@ Este reclamo fue cargado en el SAC el ${resolvedInfo.fecha || 'No especificada'}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={emailDialogOpen} onOpenChange={(open) => { if (!emailSending) setEmailDialogOpen(open); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" />
+              Enviar por correo
+            </DialogTitle>
+            <DialogDescription>
+              Sale desde informes@santafeciudad.gov.ar con el PDF adjunto.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="email-to">Destinatario</Label>
+              <Input
+                id="email-to"
+                type="email"
+                autoFocus
+                autoComplete="email"
+                placeholder="area@ejemplo.gov.ar"
+                value={emailTo}
+                disabled={emailSending}
+                onChange={(e) => setEmailTo(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSendEmail();
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="email-body">Mensaje</Label>
+              <textarea
+                id="email-body"
+                value={emailBody}
+                disabled={emailSending}
+                onChange={(e) => setEmailBody(e.target.value)}
+                className="w-full min-h-[180px] text-xs font-medium bg-card text-foreground border rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-primary shadow-inner"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={emailSending}
+                onClick={() => setEmailDialogOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                disabled={emailSending || !emailTo.trim()}
+                onClick={handleSendEmail}
+                className="gap-2"
+              >
+                {emailSending
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Enviando...</>
+                  : <><Send className="w-4 h-4" /> Enviar correo</>}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

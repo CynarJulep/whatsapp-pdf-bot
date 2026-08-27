@@ -1,0 +1,151 @@
+# Stack Docker local — espejo Render (pai + licencias + SAC + tunnels).
+#
+# Prod (default): puertos 3001/3002/9100, sessions pai/licencias.
+#   docker compose --profile tunnels up -d
+#
+# Paralelo de prueba (sin pelear PM2): ver docs/LOCAL_STACK.md
+
+name: wa-local
+
+x-bot-common: &bot-common
+  build:
+    context: .
+    dockerfile: Dockerfile.local
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment: &bot-env
+    NODE_ENV: production
+    PORT: "7860"
+    SAC_HEADLESS: "true"
+  volumes:
+    - ./.sac-session:/app/.sac-session
+  shm_size: "256mb"
+  networks:
+    - wa-net
+
+services:
+  pai:
+    <<: *bot-common
+    container_name: wa-pai
+    environment:
+      <<: *bot-env
+      SESSION_ID: ${DOCKER_PAI_SESSION:-pai}
+      SAC_FEATURE_ENABLED: "true"
+      SAC_PROCESS_JOBS: "true"
+      # Docker: Chromium necesita no-sandbox + flags livianos
+      SAC_LOW_MEMORY: "true"
+    ports:
+      - "${PAI_HOST_PORT:-3001}:7860"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7860/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 20s
+      timeout: 8s
+      retries: 8
+      start_period: 40s
+
+  licencias:
+    <<: *bot-common
+    container_name: wa-licencias
+    environment:
+      <<: *bot-env
+      SESSION_ID: ${DOCKER_LICENCIAS_SESSION:-licencias}
+      SAC_FEATURE_ENABLED: "false"
+      SAC_PROCESS_JOBS: "false"
+    ports:
+      - "${LICENCIAS_HOST_PORT:-3002}:7860"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7860/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 20s
+      timeout: 8s
+      retries: 8
+      start_period: 40s
+
+  dashboard:
+    image: node:20-bookworm-slim
+    container_name: wa-dashboard
+    working_dir: /app
+    command: ["node", "local-stack/dashboard/server.js"]
+    restart: unless-stopped
+    volumes:
+      - ./local-stack:/app/local-stack:ro
+      - tunnel-state:/app/local-stack/state
+    environment:
+      NODE_ENV: production
+      DASHBOARD_PORT: "9100"
+      PAI_URL: http://pai:7860
+      LICENCIAS_URL: http://licencias:7860
+    ports:
+      - "${DASHBOARD_HOST_PORT:-9100}:9100"
+    depends_on:
+      pai:
+        condition: service_started
+      licencias:
+        condition: service_started
+    networks:
+      - wa-net
+
+  # Solo en cutover: publica trycloudflare → Supabase registry (Netlify).
+  tunnels:
+    profiles: ["tunnels"]
+    <<: *bot-common
+    container_name: wa-tunnels
+    depends_on:
+      pai:
+        condition: service_healthy
+      licencias:
+        condition: service_healthy
+    command: ["node", "local-stack/tunnel/run-tunnels.mjs"]
+    environment:
+      <<: *bot-env
+      PAI_TUNNEL_TARGET: http://pai:7860
+      LICENCIAS_TUNNEL_TARGET: http://licencias:7860
+      CLOUDFLARED_AUTO_INSTALL: "1"
+    volumes:
+      - ./.sac-session:/app/.sac-session
+      - tunnel-bin:/app/local-stack/bin
+      - tunnel-state:/app/local-stack/state
+
+  # Vigila bots/tunnels: reconnect si stalled; alerta si hace falta QR.
+  maintain:
+    profiles: ["tunnels"]
+    image: node:20-bookworm-slim
+    container_name: wa-maintain
+    working_dir: /app
+    command: ["node", "local-stack/maintain/run-maintain.mjs"]
+    restart: unless-stopped
+    volumes:
+      - ./local-stack/maintain:/app/local-stack/maintain:ro
+      - tunnel-state:/app/local-stack/state
+    environment:
+      NODE_ENV: production
+      PAI_URL: http://pai:7860
+      LICENCIAS_URL: http://licencias:7860
+      MAINTAIN_INTERVAL_MS: "45000"
+    depends_on:
+      pai:
+        condition: service_started
+      licencias:
+        condition: service_started
+    networks:
+      - wa-net
+
+networks:
+  wa-net:
+    driver: bridge
+
+volumes:
+  tunnel-bin:
+  tunnel-state:

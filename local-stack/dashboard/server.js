@@ -11,6 +11,7 @@ const PAI_URL = (process.env.PAI_URL || 'http://127.0.0.1:3001').replace(/\/$/, 
 const LICENCIAS_URL = (process.env.LICENCIAS_URL || 'http://127.0.0.1:3002').replace(/\/$/, '');
 const STATE_DIR = path.join(__dirname, '..', 'state');
 const TUNNELS_FILE = path.join(STATE_DIR, 'tunnels.json');
+const ALERTS_FILE = path.join(STATE_DIR, 'alerts.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 function fetchJson(url, timeoutMs = 4000) {
@@ -58,6 +59,15 @@ function readTunnels() {
   }
 }
 
+function readAlerts() {
+  try {
+    if (!fs.existsSync(ALERTS_FILE)) return null;
+    return JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 async function collectSnapshot() {
   const [paiStatus, licStatus, paiMetrics, licMetrics] = await Promise.all([
     fetchJson(`${PAI_URL}/status`),
@@ -68,6 +78,7 @@ async function collectSnapshot() {
   return {
     ts: new Date().toISOString(),
     tunnels: readTunnels(),
+    maintain: readAlerts(),
     bots: {
       pai: { url: PAI_URL, status: paiStatus },
       licencias: { url: LICENCIAS_URL, status: licStatus },

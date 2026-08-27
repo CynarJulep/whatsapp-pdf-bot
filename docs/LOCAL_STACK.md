@@ -1,103 +1,127 @@
 # Stack local gratis (PC siempre encendida)
 
-Espejo de los 2 servicios Render (`pai` + `licencias`) en esta PC, con métricas y tunnels Cloudflare free. Sin Docker.
+Espejo de los 2 servicios Render (`pai` + `licencias`) en esta PC. **Prod actual = Docker Compose**.
 
-## Qué incluye
+## Qué incluye (Docker — prod)
 
-| Proceso PM2 | Puerto | Rol |
-|-------------|--------|-----|
-| `wa-pai` | 3001 | Bot PAI + SAC |
-| `wa-licencias` | 3002 | Bot licencias |
-| `wa-dashboard` | 9100 | Métricas en vivo |
-| `wa-tunnels` | — | Cloudflare Quick Tunnels ($0) |
+| Servicio | Puerto | Session | Rol |
+|----------|--------|---------|-----|
+| `pai` | 3001 | `pai` | Bot PAI + SAC + Playwright |
+| `licencias` | 3002 | `licencias` | Bot licencias |
+| `dashboard` | 9100 | — | Métricas en vivo |
+| `tunnels` | — | profile `tunnels` | Cloudflare Quick Tunnels + registry Supabase |
 
-Auto-reinicio: PM2. Auto-arranque al loguear: Task Scheduler (`npm run local:autostart`).
+Auth Baileys en **Supabase** (igual que Render): al reiniciar suele reconectar **sin QR nuevo**. Si aparece QR en `/status`, escanearlo desde WhatsApp → dispositivos vinculados.
+
+```powershell
+npm run docker:up         # compose + tunnels
+npm run docker:ps
+npm run docker:logs
+npm run docker:down
+npm run docker:always-on # auto-login + ventana + Docker + lock + sin sleep
+npm run docker:autostart  # alias → always-on (legacy: -LegacySilentOnly)
+npm run docker:cutover    # apaga PM2 y levanta Docker prod
+```
+
+- Dashboard: http://127.0.0.1:9100  
+- PAI: http://127.0.0.1:3001/status  
+- Licencias: http://127.0.0.1:3002/status  
+- Sitio: https://ac-pai-wp.netlify.app  
+
+Skill: `.agents/skills/docker-local-stack/`.
+
+`Dockerfile.local` trae Playwright Chromium. Compose: `shm_size: 256mb`, `SAC_LOW_MEMORY=true`, volumen `./.sac-session`.
+
+## Always-on (PC de escritorio compartida)
+
+Objetivo: tras reinicio, este usuario entra solo → ventana “abriendo procesos” → Docker + compose → **lock**. La sesión sigue viva (contenedores corren) pero nadie ve el escritorio. Para usar la PC: desbloqueás con la clave. Para el día a día de otra persona: **Cambiar de usuario** (no cerrar sesión de este).
+
+```powershell
+# Una vez, como Admin, logueado en el usuario Docker:
+npm run docker:always-on
+# Pide la clave de Windows (queda en Winlogon — usuario dedicado).
+```
+
+También configura energía: **sin sleep/hibernación** con AC; monitor puede apagarse a los 15 min. En BIOS (opcional tras corte de luz): *Restore AC Power Loss = Power On*.
+
+Probar sin reiniciar ni lock:
+
+```powershell
+powershell -NoProfile -File "$env:LOCALAPPDATA\WhatsAppLocalStack\boot-always-on.ps1" -SkipLock
+```
+
+Desinstalar: `.\scripts\local-stack\install-docker-always-on.ps1 -Uninstall`
+
+## Auto-mantenimiento (que siga andando)
+
+### Lo que ya es automático
+| Caso | Qué hace |
+|------|----------|
+| Corte de red / WA reinicia socket | Reconnect con backoff |
+| Protocolo WA viejo (405, etc.) | Invalida cache y pide versión nueva (`fetchLatestBaileysVersion`) |
+| Mientras está conectado | Refresh proactivo de versión cada ~45 min |
+| Proceso zombie (sin QR ni connect) | Watchdog cada 30s → reconnect |
+| Contenedor caído | `restart: unless-stopped` |
+| PC reinicia | Auto-login + tarea AlwaysOn + Docker + lock |
+| Bot “stalled” | Servicio `maintain` llama `/reconnect` |
+| Tunnel nuevo | `tunnels` republica registry → Netlify se actualiza solo |
+
+### Lo que NO se puede 100% solo
+Si WhatsApp **desvincula el dispositivo** (update del celular, “cerrar sesión en todos”, conflicto 440 mal manejado, etc.), hace falta **escanear QR una vez**. El bot borra creds viejas, genera QR y el dashboard marca **NEEDS QR**.
+
+Mirar: http://127.0.0.1:9100
+
+### Checklist “siempre up”
+1. `npm run docker:always-on` (Admin, una vez)
+2. Docker Desktop → **Start when you log in** (el installer también lo marca)
+3. No cerrar sesión de este usuario; bloquear o *Cambiar de usuario*
+4. De vez en cuando: `docker compose --profile tunnels up -d --build` si actualizás Baileys
+
+### Si se rompe
+```powershell
+npm run docker:ps
+npm run docker:logs
+docker compose --profile tunnels restart tunnels
+# último recurso:
+npm run docker:cutover
+```
 
 ## URL estática (sin pagar dominio)
 
 La URL pública **no cambia**: `https://ac-pai-wp.netlify.app`
 
-Los quick tunnels de Cloudflare sí rotan al reiniciar. Al arrancar, `wa-tunnels` publica las URLs actuales en Supabase Storage:
+Los quick tunnels rotan al reiniciar. El servicio `tunnels` publica las URLs en:
 
 `https://hltyozdvcqfmvqmyrlva.supabase.co/storage/v1/object/public/runtime/backend-endpoints.json`
 
-Netlify (`api-proxy` / `sac-proxy`) lee ese JSON en cada request (cache ~15s). Si el tunnel se reinicia, en segundos el sitio vuelve a apuntar solo — sin tocar Netlify a mano.
+Netlify lee ese JSON (cache ~15s).
 
-## Sin ventanas (PC compartida)
+## Sin escritorio abierto (PC compartida)
 
-Chromium SAC corre **siempre headless** (invisible). PM2 y cloudflared usan `windowsHide`.
-El autoarranque es un `.vbs` silencioso (sin flash de terminal).
+Chromium SAC siempre headless. Arranque: tarea `WhatsApp-Docker-AlwaysOn` (ventana de estado → lock). No hace falta dejar el usuario “a la vista”.
 
-```powershell
-npm run local:autostart   # reinstala el launcher invisible
-npx pm2 restart all
-```
+## SAC (buscar reclamos / preview PDF)
 
-No uses `SAC_HEADLESS=false` en esta PC.
+`SAC_PROCESS_JOBS=true` y Playwright en la imagen. Si falla Chromium: `docker compose logs pai`.
 
-## SAC (buscar reclamos)
-
-Con el stack local, `SAC_PROCESS_JOBS` debe ser **`true`** (el bot procesa Playwright acá).
-En Render free a veces estaba en `false` porque usaban worker externo en la PC; ahora el bot YA corre en la PC.
-
-Si la búsqueda queda en “Esperando al worker local…”, revisá `.env` y reiniciá:
+## Rollback a PM2
 
 ```powershell
-# en .env: SAC_PROCESS_JOBS=true
-npx pm2 restart wa-pai --update-env
+docker compose --profile tunnels down
+npm run local:start
+npm run local:autostart
 ```
 
 ## Setup (una vez)
 
 ```powershell
 cd C:\Renzo\WHATSAPP
-
-# Opción A — traer secrets desde Render
-$env:RENDER_API_KEY = "rnd_xxx"
-npm run local:setup
-
-# Opción B — sin Render: editar .env a mano (se crea desde .env.example)
-npm run local:setup
-notepad .env
-```
-
-## Arrancar
-
-```powershell
-npm run local:start
-npm run local:autostart   # opcional: revive al iniciar Windows
-```
-
-- Dashboard: http://127.0.0.1:9100  
-- PAI: http://127.0.0.1:3001/status  
-- Licencias: http://127.0.0.1:3002/status  
-
-Los tunnels públicos aparecen en el dashboard (URLs `*.trycloudflare.com`).
-
-## Netlify → PC
-
-1. En Netlify → Site settings → Environment variables:
-   - `BACKEND_URL` = URL pública del tunnel **PAI** (la del dashboard)
-   - `RENDER_BACKEND_URL` = igual (compat)
-   - `RENDER_LICENCIAS_URL` = tunnel licencias (keep-alive)
-2. Redeploy del sitio (para que las functions tomen el env).
-
-Si definís `NETLIFY_AUTH_TOKEN` + `NETLIFY_SITE_ID` en `.env`, el proceso `wa-tunnels` intenta actualizar `BACKEND_URL` solo cuando cambia el tunnel.
-
-`netlify.toml` ya proxya `/api/*` → `api-proxy` (lee `BACKEND_URL`).
-
-## Comandos útiles
-
-```powershell
-npm run local:status
-npm run local:logs
-npm run local:stop
-npx pm2 restart all
+# .env con secrets (mismo que Render)
+npm run docker:up
+npm run docker:always-on
 ```
 
 ## Notas
 
-- Auth Baileys sigue en **Supabase** (igual que Render): no perdés sesión al mover.
-- Quick Tunnels son gratis; la URL puede cambiar si reinicia `wa-tunnels` → mirá el dashboard y actualizá Netlify (o usá el sync automático).
-- Keep-alive de GitHub/Netlify ya no es crítico (la PC no se duerme como Render free), pero no estorba.
+- Keep-alive de GitHub/Netlify ya no es crítico (la PC no se duerme como Render free).
 - Rotá la API key de Render si la pegaste en el chat.

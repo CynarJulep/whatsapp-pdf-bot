@@ -9,7 +9,7 @@
     "frontend": "npm run dev --prefix frontend",
     "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
     "build": "npm install --prefix frontend && npm run build --prefix frontend",
-    "verify": "npm run build && node --check index.js && node --check services/sacAutomation.js",
+    "verify": "npm run build && node --check index.js && node --check services/sacAutomation.js && node --check services/mailSender.js",
     "playwright:install": "npx playwright install chromium",
     "sac:worker": "node workers/sacWorker.js",
     "local:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-stack/setup.ps1",
@@ -17,7 +17,14 @@
     "local:stop": "npx pm2 stop ecosystem.config.cjs",
     "local:logs": "npx pm2 logs",
     "local:status": "npx pm2 status",
-    "local:autostart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-stack/install-autostart.ps1"
+    "local:autostart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-stack/install-autostart.ps1",
+    "docker:up": "docker compose --profile tunnels up -d --build",
+    "docker:down": "docker compose --profile tunnels down",
+    "docker:logs": "docker compose --profile tunnels logs -f --tail=200",
+    "docker:ps": "docker compose --profile tunnels ps",
+    "docker:cutover": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-stack/docker-cutover.ps1",
+    "docker:autostart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-stack/install-docker-autostart.ps1",
+    "docker:always-on": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-stack/install-docker-always-on.ps1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
@@ -27,6 +34,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "link-preview-js": "^3.0.5",
+    "nodemailer": "^9.0.5",
     "pino": "^9.1.0",
     "playwright": "^1.51.0",
     "qrcode-terminal": "^0.12.0",

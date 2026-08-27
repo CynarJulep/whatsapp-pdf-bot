@@ -38,6 +38,51 @@
       color: var(--muted);
       font-size: 0.875rem;
     }
+    #ts { color: var(--muted); font-size: 0.8rem; }
+    .alert {
+      margin: 1rem 1.5rem 0;
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--warn);
+      background: var(--panel);
+      font-size: 0.9rem;
+    }
+    .alert.action { border-left-color: var(--bad); }
+    .alert.ok { border-left-color: var(--ok); }
+    .alert h3 { margin: 0 0 0.35rem; font-size: 0.95rem; font-weight: 600; }
+    .alert p { margin: 0.25rem 0 0; color: var(--muted); }
+    .alert ul {
+      margin: 0.4rem 0 0;
+      padding-left: 1.1rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .alert code, .note code, .explain code {
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 0.8em;
+    }
+    .qr-box {
+      margin-top: 0.5rem;
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 0.75rem;
+      word-break: break-all;
+      color: var(--text);
+    }
+    .explain {
+      margin: 0.65rem 0 0;
+      padding-top: 0.65rem;
+      border-top: 1px solid #1f1f22;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .explain strong { color: var(--text); font-weight: 600; }
+    .note {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
     main {
       display: grid;
       gap: 1rem;
@@ -66,6 +111,8 @@
       border-bottom: 1px solid #1f1f22;
     }
     .row:last-child { border-bottom: 0; }
+    .row .k { color: var(--muted); flex-shrink: 0; }
+    .row .v { text-align: right; word-break: break-word; }
     .dot {
       display: inline-block;
       width: 8px;
@@ -87,15 +134,19 @@
       max-height: 220px;
       overflow: auto;
     }
-    #ts { color: var(--muted); font-size: 0.8rem; }
   </style>
 </head>
 <body>
   <header>
     <h1>WhatsApp Local Stack</h1>
-    <p>Métricas en vivo · gratis · auto-reinicio con PM2 · <span id="ts">—</span></p>
+    <p>Docker prod · auto-reconnect · tunnels · actualizado <span id="ts">—</span></p>
   </header>
+  <div id="alerts"></div>
   <main>
+    <section class="card span-2" id="card-overview">
+      <h2>Resumen — qué está pasando</h2>
+      <div class="body">Cargando…</div>
+    </section>
     <section class="card" id="card-pai">
       <h2>Bot PAI</h2>
       <div class="body">Cargando…</div>
@@ -105,7 +156,11 @@
       <div class="body">Cargando…</div>
     </section>
     <section class="card span-2" id="card-tunnels">
-      <h2>Tunnels públicos (Cloudflare free)</h2>
+      <h2>Tunnels públicos + Netlify</h2>
+      <div class="body">Cargando…</div>
+    </section>
+    <section class="card span-2" id="card-actions">
+      <h2>Si hay error — qué hacer</h2>
       <div class="body">Cargando…</div>
     </section>
     <section class="card span-2">
@@ -120,48 +175,380 @@
       })[c]);
     }
 
+    function fmtMs(ms) {
+      if (ms == null || ms === 0) return '—';
+      if (ms < 1000) return ms + ' ms';
+      const s = Math.round(ms / 1000);
+      if (s < 60) return s + ' s';
+      return Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+    }
+
+    function fmtUptime(s) {
+      if (s == null) return '—';
+      if (s < 60) return s + ' s';
+      if (s < 3600) return Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return h + ' h ' + m + ' min';
+    }
+
+    function fmtTime(iso) {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleString('es-AR', { hour12: false });
+      } catch {
+        return esc(iso);
+      }
+    }
+
+    /** Códigos típicos Baileys / WA Web */
+    const DISCONNECT = {
+      401: {
+        name: 'loggedOut',
+        meaning: 'WhatsApp cerró la sesión vinculada (desinstaló el dispositivo, “cerrar sesiones”, o credenciales inválidas).',
+        action: 'Hay que volver a vincular: esperá el QR y escanealo desde el celular (Dispositivos vinculados).',
+      },
+      405: {
+        name: 'client_outdated / rejected',
+        meaning: 'El protocolo o handshake fue rechazado (versión de WA Web vieja o rate-limit).',
+        action: 'El bot debería refrescar versión solo. Si se repite: docker compose --profile tunnels restart pai (o licencias).',
+      },
+      408: {
+        name: 'timeout / QR agotado',
+        meaning: 'Timeout de red o se agotaron los intentos de QR.',
+        action: 'Se reintenta solo. Si queda trabado, mirá “stalled” abajo o reiniciá el contenedor.',
+      },
+      411: {
+        name: 'multidevice mismatch',
+        meaning: 'Incompatibilidad de multi-dispositivo.',
+        action: 'Reconectar; si no vuelve, borrar sesión y escanear QR de nuevo.',
+      },
+      428: {
+        name: 'connection closed',
+        meaning: 'WhatsApp cerró la conexión (a menudo protocolo/red).',
+        action: 'Reconnect automático. Si hay pairing_blocked, forzá restart del bot.',
+      },
+      440: {
+        name: 'conflict',
+        meaning: 'Otra instancia usó la misma session_id (doble bot / PM2+Docker a la vez).',
+        action: 'Asegurate de tener UNA sola copia corriendo (solo Docker). Después reconnect o QR.',
+      },
+      500: {
+        name: 'internal error',
+        meaning: 'Error interno del lado WhatsApp / socket.',
+        action: 'Esperá el retry automático; si persiste, restart del contenedor.',
+      },
+      515: {
+        name: 'restartRequired',
+        meaning: 'Normal justo después de escanear el QR (pairing).',
+        action: 'No es un error: el bot debe reconectar solo en milisegundos.',
+      },
+    };
+
+    function disconnectHelp(code) {
+      if (code == null) return null;
+      return DISCONNECT[code] || {
+        name: 'code_' + code,
+        meaning: 'Código de desconexión no catalogado.',
+        action: 'Revisá logs: docker compose logs pai --tail 80 (o licencias).',
+      };
+    }
+
+    function botDiagnosis(label, data, httpOk, httpErr) {
+      if (!httpOk) {
+        return {
+          state: 'DOWN',
+          cls: 'bad',
+          summary: 'El proceso no responde HTTP.',
+          detail: httpErr
+            ? ('Error de red hacia el contenedor: ' + httpErr)
+            : 'No hay JSON de /status. El contenedor puede estar caído, reiniciando o sin puerto.',
+          actions: [
+            'docker compose --profile tunnels ps',
+            'docker compose --profile tunnels logs ' + (label === 'pai' ? 'pai' : 'licencias') + ' --tail 100',
+            'docker compose --profile tunnels restart ' + (label === 'pai' ? 'pai' : 'licencias'),
+          ],
+        };
+      }
+      if (data?.connected) {
+        return {
+          state: 'CONNECTED',
+          cls: 'ok',
+          summary: 'WhatsApp vinculado y socket abierto.',
+          detail: 'Puede enviar/recibir. SAC ' + (data.sac_enabled ? 'habilitado en este bot.' : 'deshabilitado en este bot (normal en licencias).'),
+          actions: [],
+        };
+      }
+      if (data?.qr) {
+        return {
+          state: 'NEEDS QR',
+          cls: 'warn',
+          summary: 'Hace falta vincular el dispositivo otra vez.',
+          detail: 'Abrí WhatsApp en el celular → Menú → Dispositivos vinculados → Vincular dispositivo, y escaneá el QR que genera el bot (logs del contenedor o flujo de pairing). Esto suele pasar si WhatsApp desvinculó la sesión tras un update.',
+          actions: [
+            'Dejá el bot corriendo hasta ver el QR en logs',
+            'Escaneá con el número correcto de esta session (' + (data.session_id || label) + ')',
+            'Tras escanear, el código 515 es normal (reinicio de pairing)',
+          ],
+        };
+      }
+      if (data?.pairing_blocked) {
+        return {
+          state: 'PAIRING BLOCKED',
+          cls: 'bad',
+          summary: 'Emparejado bloqueado (suele ser versión/protocolo 405).',
+          detail: 'El bot intenta refrescar la versión de WA Web solo. Si lleva mucho tiempo así, reiniciá el contenedor.',
+          actions: [
+            'docker compose --profile tunnels restart ' + (label === 'pai' ? 'pai' : 'licencias'),
+            'Si vuelve 405: docker compose --profile tunnels up -d --build ' + (label === 'pai' ? 'pai' : 'licencias'),
+          ],
+        };
+      }
+      if (data?.connecting) {
+        return {
+          state: 'CONNECTING',
+          cls: 'warn',
+          summary: 'Reconectando con WhatsApp ahora.',
+          detail: 'Esperado tras un corte. Lleva ' + fmtMs(data.connecting_for_ms) + '. Si supera ~2–3 min, puede estar trabado.',
+          actions: data.connecting_for_ms > 180000
+            ? ['docker compose --profile tunnels restart ' + (label === 'pai' ? 'pai' : 'licencias')]
+            : ['Esperá; el watchdog/maintain fuerzan reconnect si se traba'],
+        };
+      }
+      if (data?.stalled) {
+        return {
+          state: 'STALLED',
+          cls: 'bad',
+          summary: 'Desconectado, sin QR y sin intento de connect activo.',
+          detail: 'Estado zombie. El watchdog del bot y el servicio maintain deberían llamar /reconnect solos.',
+          actions: [
+            'Esperá ~1 min',
+            'Si sigue: curl -X POST http://127.0.0.1:' + (label === 'pai' ? '3001' : '3002') + '/reconnect',
+            'O: docker compose --profile tunnels restart ' + (label === 'pai' ? 'pai' : 'licencias'),
+          ],
+        };
+      }
+      return {
+        state: 'DISCONNECTED',
+        cls: 'warn',
+        summary: 'No hay sesión abierta en este momento.',
+        detail: 'Puede estar entre reintentos. Mirá last_disconnect y failures.',
+        actions: ['Revisá last_disconnect_code abajo', 'Si no recupera: restart del contenedor'],
+      };
+    }
+
+    function row(k, v) {
+      return `<div class="row"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`;
+    }
+
     function botHtml(label, entry) {
       const st = entry?.status;
       const data = st?.data;
       const up = st?.ok;
-      const connected = data?.connected;
-      const cls = !up ? 'bad' : connected ? 'ok' : 'warn';
-      const state = !up ? 'DOWN' : connected ? 'CONNECTED' : (data?.connecting ? 'CONNECTING' : 'DISCONNECTED');
-      return `
-        <div class="row"><span><span class="dot ${cls}"></span>${esc(state)}</span><span>${esc(label)}</span></div>
-        <div class="row"><span>session</span><span>${esc(data?.session_id || '—')}</span></div>
-        <div class="row"><span>uptime</span><span>${esc(data?.uptime_s != null ? data.uptime_s + 's' : '—')}</span></div>
-        <div class="row"><span>mem RSS</span><span>${esc(data?.memory_rss_mb != null ? data.memory_rss_mb + ' MB' : '—')}</span></div>
-        <div class="row"><span>failures</span><span>${esc(data?.consecutive_failures ?? '—')}</span></div>
-        <div class="row"><span>WA ver</span><span>${esc(data?.wa_version || '—')}</span></div>
-        <div class="row"><span>local</span><span><a href="${esc(entry?.url)}/status" target="_blank">${esc(entry?.url)}</a></span></div>
+      const diag = botDiagnosis(label, data, up, st?.error);
+      const disc = disconnectHelp(data?.last_disconnect_code);
+      const phone = data?.phone_user || '—';
+
+      let html = `
+        ${row('estado', `<span><span class="dot ${diag.cls}"></span>${esc(diag.state)}</span>`)}
+        ${row('qué pasa', esc(diag.summary))}
+        ${row('session_id', esc(data?.session_id || '—'))}
+        ${row('teléfono WA', esc(phone))}
+        ${row('uptime proceso', esc(fmtUptime(data?.uptime_s)))}
+        ${row('memoria RSS', esc(data?.memory_rss_mb != null ? data.memory_rss_mb + ' MB' : '—'))}
+        ${row('fallos seguidos', esc(data?.consecutive_failures ?? '—'))}
+        ${row('conectando', esc(data?.connecting ? ('sí · ' + fmtMs(data.connecting_for_ms)) : 'no'))}
+        ${row('stalled', esc(data?.stalled ? 'sí' : 'no'))}
+        ${row('pairing_blocked', esc(data?.pairing_blocked ? 'sí' : 'no'))}
+        ${row('SAC', esc(data?.sac_enabled ? 'habilitado' : 'off'))}
+        ${row('WA Web ver', esc(data?.wa_version || '—'))}
+        ${row('Baileys', esc(data?.baileys_package || '—'))}
+        ${row('último corte', esc(data?.last_disconnect_code != null ? String(data.last_disconnect_code) : '—') + (disc ? ' · ' + esc(disc.name) : ''))}
+        ${row('corte en', esc(fmtTime(data?.last_disconnect_at)))}
+        ${row('/status', `<a href="${esc(entry?.url)}/status" target="_blank">${esc(entry?.url)}/status</a>`)}
+        ${row('/ping', `<a href="${esc(entry?.url)}/ping" target="_blank">${esc(entry?.url)}/ping</a>`)}
       `;
+
+      html += `<div class="explain"><strong>Detalle:</strong> ${esc(diag.detail)}</div>`;
+      if (disc && data?.last_disconnect_code != null && !data?.connected) {
+        html += `<div class="explain"><strong>Código ${esc(data.last_disconnect_code)} (${esc(disc.name)}):</strong> ${esc(disc.meaning)}<br><strong>Qué hacer:</strong> ${esc(disc.action)}</div>`;
+      }
+      if (diag.actions?.length) {
+        html += `<div class="explain"><strong>Pasos sugeridos:</strong><ul>` +
+          diag.actions.map((a) => `<li><code>${esc(a)}</code></li>`).join('') +
+          `</ul></div>`;
+      }
+      if (data?.qr) {
+        const q = typeof data.qr === 'string' ? data.qr : JSON.stringify(data.qr);
+        html += `<div class="qr-box">Payload QR / pairing (referencia): ${esc(q.slice(0, 280))}${q.length > 280 ? '…' : ''}</div>`;
+      }
+      if (!up && st?.raw) {
+        html += `<div class="qr-box">Respuesta cruda: ${esc(st.raw)}</div>`;
+      }
+      return html;
+    }
+
+    function overviewHtml(snap) {
+      const pai = snap.bots?.pai?.status;
+      const lic = snap.bots?.licencias?.status;
+      const pd = pai?.data;
+      const ld = lic?.data;
+      const paiOk = !!pd?.connected;
+      const licOk = !!ld?.connected;
+      const m = snap.maintain;
+      const alertN = m?.alerts?.length || 0;
+
+      let headline;
+      let cls;
+      if (!pai?.ok && !lic?.ok) {
+        headline = 'Stack caído: ningún bot responde.';
+        cls = 'bad';
+      } else if (paiOk && licOk && alertN === 0) {
+        headline = 'Todo operativo: PAI y Licencias conectados a WhatsApp; Netlify debería llegar vía tunnels.';
+        cls = 'ok';
+      } else if (pd?.qr || ld?.qr) {
+        headline = 'Acción humana requerida: hay que escanear QR para volver a vincular al menos un bot.';
+        cls = 'warn';
+      } else if (!paiOk || !licOk) {
+        headline = 'Parcial: algún bot no está conectado. Revisá las tarjetas y alertas.';
+        cls = 'warn';
+      } else {
+        headline = 'Bots conectados, pero hay avisos del mantenedor (tunnels/registry).';
+        cls = 'warn';
+      }
+
+      return `
+        ${row('lectura', `<span><span class="dot ${cls}"></span>${esc(headline)}</span>`)}
+        ${row('PAI', esc(paiOk ? 'conectado' : (pd?.qr ? 'necesita QR' : (pai?.ok ? 'no conectado' : 'DOWN'))))}
+        ${row('Licencias', esc(licOk ? 'conectado' : (ld?.qr ? 'necesita QR' : (lic?.ok ? 'no conectado' : 'DOWN'))))}
+        ${row('alertas maintain', esc(alertN === 0 ? 'ninguna' : alertN + ' activa(s)'))}
+        ${row('último maintain', esc(fmtTime(m?.ts)))}
+        <p class="note" style="margin-top:0.75rem">
+          Este panel lee <code>/status</code> de cada bot cada 5 s y el archivo de alertas del servicio <code>maintain</code>.
+          Sitio público: <a href="https://ac-pai-wp.netlify.app" target="_blank">ac-pai-wp.netlify.app</a>
+          · ping API: <a href="https://ac-pai-wp.netlify.app/api/ping" target="_blank">/api/ping</a>.
+        </p>
+      `;
+    }
+
+    function alertsHtml(maintain) {
+      const list = maintain?.alerts || [];
+      if (!list.length) {
+        return `<div class="alert ok">
+          <h3>Auto-mantenimiento — OK</h3>
+          <p>Sin alertas. El bot reconecta solo ante cortes, refresca la versión de WhatsApp Web ~cada 45 min, y <code>maintain</code> vigila estados stalled.</p>
+          <p><strong>Importante:</strong> si WhatsApp desvincula el dispositivo, igual hará falta escanear QR una vez (no se puede automatizar).</p>
+        </div>`;
+      }
+      return list.map((a) => {
+        const steps = [];
+        if (a.severity === 'action_required') {
+          steps.push('Abrí WhatsApp → Dispositivos vinculados → Vincular dispositivo');
+          steps.push('Escaneá el QR del bot correspondiente (mirá logs del contenedor)');
+          steps.push('Tras escanear, esperá reconnect (código 515 es normal)');
+        } else if (String(a.title || '').toLowerCase().includes('tunnel')) {
+          steps.push('docker compose --profile tunnels restart tunnels');
+          steps.push('Esperá ~30 s y revisá que el registry Supabase tenga URLs nuevas');
+          steps.push('Probar https://ac-pai-wp.netlify.app/api/ping');
+        } else if (String(a.title || '').toLowerCase().includes('registry')) {
+          steps.push('docker compose --profile tunnels logs tunnels --tail 50');
+          steps.push('Verificar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en .env');
+        } else {
+          steps.push('docker compose --profile tunnels ps');
+          steps.push('docker compose --profile tunnels logs --tail 80');
+        }
+        return `<div class="alert ${a.severity === 'action_required' ? 'action' : ''}">
+          <h3>${esc(a.title)} <span style="color:var(--muted);font-weight:500;font-size:0.8rem">(${esc(a.severity || 'warning')} · ${esc(a.bot || '?')})</span></h3>
+          <p>${esc(a.detail)}</p>
+          <ul>${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
+        </div>`;
+      }).join('');
+    }
+
+    function tunnelsHtml(t, maintain) {
+      const mt = maintain?.tunnels || {};
+      if (!t || (!t.pai && !t.licencias)) {
+        return `<p class="note">Todavía no hay tunnels en <code>tunnels.json</code>. El servicio <code>tunnels</code> crea quick tunnels de Cloudflare y publica el registry para Netlify.</p>
+          <p class="note">Si lleva más de 1–2 minutos vacío: <code>docker compose --profile tunnels logs tunnels --tail 60</code></p>`;
+      }
+      const age = t.updatedAt ? (Date.now() - new Date(t.updatedAt).getTime()) : null;
+      const ageLabel = age == null ? '—' : (age < 60000 ? Math.round(age / 1000) + ' s' : Math.round(age / 60000) + ' min');
+      const paiReach = mt.paiReachable;
+      const licReach = mt.licenciasReachable;
+
+      return `
+        ${row('PAI público', t.pai ? `<a href="${esc(t.pai)}" target="_blank">${esc(t.pai)}</a>` : '—')}
+        ${row('alcanza /status', paiReach === true ? '<span class="dot ok"></span>sí' : paiReach === false ? '<span class="dot bad"></span>no' : '— (maintain)')}
+        ${row('Licencias público', t.licencias ? `<a href="${esc(t.licencias)}" target="_blank">${esc(t.licencias)}</a>` : '—')}
+        ${row('alcanza /status', licReach === true ? '<span class="dot ok"></span>sí' : licReach === false ? '<span class="dot bad"></span>no' : '— (maintain)')}
+        ${row('registry actualizado', esc(fmtTime(t.updatedAt)) + ' · hace ' + esc(ageLabel))}
+        ${row('registry público', '<a href="https://hltyozdvcqfmvqmyrlva.supabase.co/storage/v1/object/public/runtime/backend-endpoints.json" target="_blank">backend-endpoints.json</a>')}
+        <div class="explain">
+          <strong>Cómo encaja Netlify:</strong> el sitio fijo
+          <a href="https://ac-pai-wp.netlify.app" target="_blank">ac-pai-wp.netlify.app</a>
+          lee el JSON del registry (cache ~15 s) y proxya al tunnel PAI.
+          Si el tunnel rota, no hace falta tocar Netlify a mano: <code>tunnels</code> republica solo.
+          Si el sitio falla pero los bots locales están OK, el problema suele ser tunnel/registry — no WhatsApp.
+        </div>
+      `;
+    }
+
+    function actionsHtml(snap) {
+      const items = [];
+      const pai = snap.bots?.pai?.status?.data;
+      const lic = snap.bots?.licencias?.status?.data;
+      const paiHttp = snap.bots?.pai?.status;
+      const licHttp = snap.bots?.licencias?.status;
+
+      if (!paiHttp?.ok) items.push(['PAI no responde HTTP', 'docker compose --profile tunnels restart pai && docker compose logs pai --tail 80']);
+      if (!licHttp?.ok) items.push(['Licencias no responde HTTP', 'docker compose --profile tunnels restart licencias && docker compose logs licencias --tail 80']);
+      if (pai?.qr) items.push(['PAI necesita QR', 'WhatsApp → Dispositivos vinculados → escanear; logs: docker compose logs pai --tail 40']);
+      if (lic?.qr) items.push(['Licencias necesita QR', 'WhatsApp → Dispositivos vinculados → escanear; logs: docker compose logs licencias --tail 40']);
+      if (pai?.stalled) items.push(['PAI stalled', 'curl -X POST http://127.0.0.1:3001/reconnect']);
+      if (lic?.stalled) items.push(['Licencias stalled', 'curl -X POST http://127.0.0.1:3002/reconnect']);
+      if (pai?.pairing_blocked) items.push(['PAI pairing_blocked (405)', 'docker compose --profile tunnels restart pai']);
+      if (lic?.pairing_blocked) items.push(['Licencias pairing_blocked', 'docker compose --profile tunnels restart licencias']);
+
+      const mt = snap.maintain?.tunnels;
+      if (mt && mt.pai && mt.paiReachable === false) items.push(['Tunnel PAI caído', 'docker compose --profile tunnels restart tunnels']);
+      if (mt && mt.licencias && mt.licenciasReachable === false) items.push(['Tunnel Licencias caído', 'docker compose --profile tunnels restart tunnels']);
+      for (const a of (snap.maintain?.alerts || [])) {
+        if (a.severity === 'action_required') continue; // already covered by QR
+        items.push([a.title, a.detail]);
+      }
+
+      if (!items.length) {
+        return `<p class="note">No hay acciones pendientes. Comandos útiles de todos modos:</p>
+          <ul class="note">
+            <li><code>npm run docker:ps</code> — estado contenedores</li>
+            <li><code>npm run docker:logs</code> — logs en vivo</li>
+            <li><code>docker compose --profile tunnels restart tunnels</code> — si Netlify no llega</li>
+            <li><code>curl http://127.0.0.1:3001/status</code> · <code>curl http://127.0.0.1:3002/status</code></li>
+          </ul>`;
+      }
+
+      return items.map(([title, cmd]) => `
+        <div class="row"><span class="k">${esc(title)}</span><span class="v"><code>${esc(cmd)}</code></span></div>
+      `).join('') + `<div class="explain">Priorizá QR / DOWN antes que tunnels. Los bots locales pueden estar perfectos y aun así fallar el sitio si el tunnel está caído.</div>`;
     }
 
     async function tick() {
       try {
         const res = await fetch('/api/snapshot', { cache: 'no-store' });
         const snap = await res.json();
-        document.getElementById('ts').textContent = snap.ts;
+        document.getElementById('ts').textContent = fmtTime(snap.ts);
+        document.getElementById('alerts').innerHTML = alertsHtml(snap.maintain);
+        document.querySelector('#card-overview .body').innerHTML = overviewHtml(snap);
         document.querySelector('#card-pai .body').innerHTML = botHtml('pai', snap.bots.pai);
         document.querySelector('#card-lic .body').innerHTML = botHtml('licencias', snap.bots.licencias);
-
-        const t = snap.tunnels;
-        const tb = document.querySelector('#card-tunnels .body');
-        if (!t || (!t.pai && !t.licencias)) {
-          tb.innerHTML = '<p style="color:var(--muted);margin:0;font-size:0.9rem">Todavía no hay tunnels. El proceso <code>wa-tunnels</code> los crea solo (cloudflared free).</p>';
-        } else {
-          tb.innerHTML = `
-            <div class="row"><span>PAI público</span><span>${t.pai ? `<a href="${esc(t.pai)}" target="_blank">${esc(t.pai)}</a>` : '—'}</span></div>
-            <div class="row"><span>Licencias público</span><span>${t.licencias ? `<a href="${esc(t.licencias)}" target="_blank">${esc(t.licencias)}</a>` : '—'}</span></div>
-            <div class="row"><span>actualizado</span><span>${esc(t.updatedAt || '—')}</span></div>
-          `;
-        }
+        document.querySelector('#card-tunnels .body').innerHTML = tunnelsHtml(snap.tunnels, snap.maintain);
+        document.querySelector('#card-actions .body').innerHTML = actionsHtml(snap);
 
         const m = [snap.metrics_text?.pai, snap.metrics_text?.licencias].filter(Boolean).join('\n');
         document.getElementById('metrics').textContent = m || '(sin métricas todavía)';
       } catch (e) {
         document.getElementById('ts').textContent = 'error: ' + e.message;
+        document.getElementById('alerts').innerHTML = `<div class="alert action"><h3>Dashboard sin datos</h3><p>No se pudo leer <code>/api/snapshot</code>: ${esc(e.message)}. ¿Está corriendo el contenedor <code>wa-dashboard</code>?</p><ul><li><code>docker compose --profile tunnels ps</code></li><li><code>docker compose --profile tunnels restart dashboard</code></li></ul></div>`;
       }
     }
 
