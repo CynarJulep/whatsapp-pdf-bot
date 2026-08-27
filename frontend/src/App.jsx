@@ -176,36 +176,27 @@ const buildClaimEmailBody = (info = {}, { fromSac = false } = {}) => {
   const subtipo = clean(info.subtipo).toUpperCase();
   const ubicacion = clean(info.ubicacion);
   const isNonSac = !fromSac && !solicitudNro && !subtipo && !ubicacion && !info.areaDestino;
-  const signature = [
-    'Atentamente,',
+  const head = isNonSac
+    ? ['Se remite el documento adjunto para su conocimiento.']
+    : [
+      'Se remite el siguiente reclamo para su conocimiento.',
+      '',
+      `Solicitud Nro: ${solicitudNro || 'No especificado'}`,
+      `Subtipo: ${subtipo || 'No especificado'}`,
+      `Ubicación: ${ubicacion || 'No especificada'}`,
+    ];
+  return [
+    ...head,
     '',
+    'Atentamente,',
     'Atención Ciudadana',
     'Municipalidad de Santa Fe',
-  ].join('\n');
-  const contactFooter = [
+    '',
     'Por favor no conteste a este correo. Comuníquese al:',
     '0800 777 5000',
-    '',
     'Presencialmente en Salta 2951, Santa Fe',
-    '',
     'Por chat en nuestro sitio web:',
     'https://www.santafeciudad.gov.ar/',
-  ].join('\n');
-  if (isNonSac) {
-    return `Se remite el documento adjunto para su conocimiento.\n\n${signature}\n\n${contactFooter}`;
-  }
-  return [
-    'Se remite el siguiente reclamo para su conocimiento.',
-    '',
-    `Solicitud Nro: ${solicitudNro || 'No especificado'}`,
-    '',
-    `Subtipo: ${subtipo || 'No especificado'}`,
-    '',
-    `Ubicación: ${ubicacion || 'No especificada'}`,
-    '',
-    signature,
-    '',
-    contactFooter,
   ].join('\n');
 };
 

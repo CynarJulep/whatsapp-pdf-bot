@@ -5,17 +5,6 @@
 const nodemailer = require('nodemailer');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const CONTACT_FOOTER_LINES = [
-    'Por favor no conteste a este correo. Comuníquese al:',
-    '0800 777 5000',
-    '',
-    'Presencialmente en Salta 2951, Santa Fe',
-    '',
-    'Por chat en nuestro sitio web:',
-    'https://www.santafeciudad.gov.ar/',
-];
-
-const P = 'margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;';
 
 function isValidEmail(value) {
     return EMAIL_RE.test(String(value || '').trim());
@@ -70,42 +59,36 @@ function normalizeClaimFields(info = {}) {
     };
 }
 
-function signatureText() {
-    return [
-        'Atentamente,',
-        '',
-        'Atención Ciudadana',
-        'Municipalidad de Santa Fe',
-    ].join('\n');
-}
-
 /**
- * Plantilla institucional (texto plano).
- * Solo: intro + Solicitud / Subtipo / Ubicación.
+ * Texto plano compacto (estilo mail normal).
+ * Evita líneas vacías de más: Gmail oculta el pie tras “…” si hay mucho whitespace.
  */
 function buildClaimEmailText(info = {}) {
     const fields = normalizeClaimFields(info);
-    if (!fields.hasClaimData) {
-        return [
+    const head = fields.hasClaimData
+        ? [
+            'Se remite el siguiente reclamo para su conocimiento.',
+            '',
+            `Solicitud Nro: ${fields.solicitudNro}`,
+            `Subtipo: ${fields.subtipo}`,
+            `Ubicación: ${fields.ubicacion}`,
+        ]
+        : [
             'Se remite el documento adjunto para su conocimiento.',
-            '',
-            signatureText(),
-            '',
-            ...CONTACT_FOOTER_LINES,
-        ].join('\n');
-    }
+        ];
+
     return [
-        'Se remite el siguiente reclamo para su conocimiento.',
+        ...head,
         '',
-        `Solicitud Nro: ${fields.solicitudNro}`,
+        'Atentamente,',
+        'Atención Ciudadana',
+        'Municipalidad de Santa Fe',
         '',
-        `Subtipo: ${fields.subtipo}`,
-        '',
-        `Ubicación: ${fields.ubicacion}`,
-        '',
-        signatureText(),
-        '',
-        ...CONTACT_FOOTER_LINES,
+        'Por favor no conteste a este correo. Comuníquese al:',
+        '0800 777 5000',
+        'Presencialmente en Salta 2951, Santa Fe',
+        'Por chat en nuestro sitio web:',
+        'https://www.santafeciudad.gov.ar/',
     ].join('\n');
 }
 
@@ -118,64 +101,55 @@ function buildClaimEmailSubject(info = {}) {
     return `Solicitud ${nro}${sub}`;
 }
 
-/**
- * HTML = mismo texto que el mail plano, sin tablas ni “hoja/tarjeta”.
- */
 function buildClaimEmailHtml(info = {}) {
     return textToSimpleHtml(buildClaimEmailText(info));
 }
 
-function wrapEmailHtml(inner) {
+/**
+ * HTML compacto: un solo bloque con <br>, sin párrafos vacíos.
+ * Así Gmail no “recorta” el mensaje tras puntos suspensivos.
+ */
+function textToSimpleHtml(text) {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+    const parts = [];
+    let pendingBlank = false;
+
+    for (const raw of lines) {
+        const trimmed = raw.trimEnd();
+        if (!trimmed) {
+            pendingBlank = parts.length > 0;
+            continue;
+        }
+
+        if (parts.length) {
+            parts.push('<br>');
+            if (pendingBlank) parts.push('<br>');
+        }
+        pendingBlank = false;
+
+        const labelMatch = trimmed.match(/^(Solicitud Nro|Subtipo|Ubicaci[oó]n):\s*(.+)$/i);
+        if (labelMatch) {
+            parts.push(`<strong>${escapeHtml(labelMatch[1])}:</strong> ${escapeHtml(labelMatch[2])}`);
+        } else if (/^Atención Ciudadana$/i.test(trimmed)) {
+            parts.push(`<strong>${escapeHtml(trimmed)}</strong>`);
+        } else if (/^https:\/\/www\.santafeciudad\.gov\.ar\/?$/i.test(trimmed)) {
+            parts.push('<a href="https://www.santafeciudad.gov.ar/" style="color:#0645AD;">https://www.santafeciudad.gov.ar/</a>');
+        } else if (/^0800\s*777\s*5000$/i.test(trimmed)) {
+            parts.push(`<a href="tel:08007775000" style="color:#111111;text-decoration:none;">${escapeHtml(trimmed)}</a>`);
+        } else if (/^Por favor no conteste/i.test(trimmed)) {
+            parts.push(`<em>${escapeHtml(trimmed)}</em>`);
+        } else {
+            parts.push(escapeHtml(trimmed));
+        }
+    }
+
     return [
         '<!DOCTYPE html>',
         '<html lang="es"><head><meta charset="utf-8"></head>',
-        '<body style="margin:0;padding:0;">',
-        inner,
+        '<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.35;color:#111111;">',
+        parts.join(''),
         '</body></html>',
     ].join('');
-}
-
-function formatPlainLineToHtml(line) {
-    const trimmed = line.trimEnd();
-    if (!trimmed) {
-        return `<p style="${P}">&nbsp;</p>`;
-    }
-
-    const labelMatch = trimmed.match(/^(Solicitud Nro|Subtipo|Ubicaci[oó]n):\s*(.+)$/i);
-    if (labelMatch) {
-        return `<p style="${P}"><strong>${escapeHtml(labelMatch[1])}:</strong> ${escapeHtml(labelMatch[2])}</p>`;
-    }
-
-    if (/^Atentamente,?$/i.test(trimmed)) {
-        return `<p style="margin:18px 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;">${escapeHtml(trimmed)}</p>`;
-    }
-
-    if (/^Atención Ciudadana$/i.test(trimmed)) {
-        return `<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;"><strong>${escapeHtml(trimmed)}</strong></p>`;
-    }
-
-    if (/^Municipalidad de Santa Fe$/i.test(trimmed)) {
-        return `<p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;">${escapeHtml(trimmed)}</p>`;
-    }
-
-    if (/^Por favor no conteste/i.test(trimmed)) {
-        return `<p style="margin:8px 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#333333;"><em>${escapeHtml(trimmed)}</em></p>`;
-    }
-
-    if (/^https:\/\/www\.santafeciudad\.gov\.ar\/?$/i.test(trimmed)) {
-        return `<p style="${P}"><a href="https://www.santafeciudad.gov.ar/" style="color:#0645AD;">https://www.santafeciudad.gov.ar/</a></p>`;
-    }
-
-    if (/^0800\s*777\s*5000$/i.test(trimmed)) {
-        return `<p style="${P}"><a href="tel:08007775000" style="color:#111111;text-decoration:none;">${escapeHtml(trimmed)}</a></p>`;
-    }
-
-    return `<p style="${P}">${escapeHtml(trimmed)}</p>`;
-}
-
-function textToSimpleHtml(text) {
-    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-    return wrapEmailHtml(lines.map(formatPlainLineToHtml).join('\n'));
 }
 
 /**
