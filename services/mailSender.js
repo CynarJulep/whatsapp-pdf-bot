@@ -15,6 +15,8 @@ const CONTACT_FOOTER_LINES = [
     'https://www.santafeciudad.gov.ar/',
 ];
 
+const P = 'margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;';
+
 function isValidEmail(value) {
     return EMAIL_RE.test(String(value || '').trim());
 }
@@ -116,135 +118,64 @@ function buildClaimEmailSubject(info = {}) {
     return `Solicitud ${nro}${sub}`;
 }
 
-function linkifyEscaped(escaped) {
-    return escaped
-        .replace(
-            /https?:\/\/[^\s<]+/g,
-            (url) => `<a href="${url}" style="color:#003b73;text-decoration:underline;">${url}</a>`
-        )
-        .replace(
-            /\b(0800\s*777\s*5000)\b/g,
-            '<a href="tel:08007775000" style="color:#003b73;text-decoration:none;font-weight:700;">$1</a>'
-        );
-}
-
-function formatPlainLineToHtml(line) {
-    const trimmed = line.trimEnd();
-    if (!trimmed) return '<div style="height:10px;line-height:10px;font-size:10px;">&nbsp;</div>';
-
-    const labelMatch = trimmed.match(/^(Solicitud Nro|Subtipo|Ubicaci[oó]n):\s*(.+)$/i);
-    if (labelMatch) {
-        const label = escapeHtml(labelMatch[1]);
-        const value = linkifyEscaped(escapeHtml(labelMatch[2]));
-        return `<p style="margin:0 0 12px;line-height:1.55;"><strong style="color:#0f172a;">${label}:</strong> <span style="color:#1e293b;">${value}</span></p>`;
-    }
-
-    if (/^Atentamente,?$/i.test(trimmed)) {
-        return `<p style="margin:22px 0 6px;line-height:1.5;color:#334155;">${escapeHtml(trimmed)}</p>`;
-    }
-
-    if (/^Atención Ciudadana$/i.test(trimmed)) {
-        return `<p style="margin:0;line-height:1.45;font-weight:700;color:#0f172a;font-size:15px;">${escapeHtml(trimmed)}</p>`;
-    }
-
-    if (/^Municipalidad de Santa Fe$/i.test(trimmed)) {
-        return `<p style="margin:0 0 18px;line-height:1.45;color:#475569;">${escapeHtml(trimmed)}</p>`;
-    }
-
-    if (/^Por favor no conteste/i.test(trimmed)) {
-        return `<p style="margin:8px 0 10px;line-height:1.55;color:#334155;"><em>${linkifyEscaped(escapeHtml(trimmed))}</em></p>`;
-    }
-
-    if (/^Por chat en nuestro/i.test(trimmed) || /^Presencialmente/i.test(trimmed)) {
-        return `<p style="margin:0 0 8px;line-height:1.55;color:#334155;">${linkifyEscaped(escapeHtml(trimmed))}</p>`;
-    }
-
-    if (/^https?:\/\//i.test(trimmed) || /^0800\s/i.test(trimmed)) {
-        return `<p style="margin:0 0 12px;line-height:1.55;">${linkifyEscaped(escapeHtml(trimmed))}</p>`;
-    }
-
-    if (/^Se remite /i.test(trimmed)) {
-        return `<p style="margin:0 0 18px;line-height:1.65;font-size:15px;color:#1e293b;">${escapeHtml(trimmed)}</p>`;
-    }
-
-    return `<p style="margin:0 0 10px;line-height:1.55;color:#1e293b;">${linkifyEscaped(escapeHtml(trimmed))}</p>`;
-}
-
 /**
- * HTML institucional: intro + grilla Solicitud/Subtipo/Ubicación + firma + canales.
+ * HTML = mismo texto que el mail plano, sin tablas ni “hoja/tarjeta”.
  */
 function buildClaimEmailHtml(info = {}) {
-    const fields = normalizeClaimFields(info);
-
-    const fieldCell = (label, value) => (
-        `<td style="width:50%;padding:0 18px 14px 0;vertical-align:top;">
-          <div style="font-size:11px;letter-spacing:0.04em;text-transform:uppercase;color:#64748b;font-weight:600;margin:0 0 4px;">${escapeHtml(label)}</div>
-          <div style="font-size:14px;line-height:1.45;color:#0f172a;font-weight:600;">${escapeHtml(value)}</div>
-        </td>`
-    );
-
-    const claimBlock = !fields.hasClaimData
-        ? '<p style="margin:0 0 20px;font-size:15px;line-height:1.65;color:#1e293b;">Se remite el documento adjunto para su conocimiento.</p>'
-        : [
-            '<p style="margin:0 0 18px;font-size:15px;line-height:1.65;color:#1e293b;">Se remite el siguiente reclamo para su conocimiento.</p>',
-            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;margin:0 0 8px;">',
-            '<tr>',
-            fieldCell('Solicitud Nro', fields.solicitudNro),
-            fieldCell('Subtipo', fields.subtipo),
-            '</tr>',
-            '<tr>',
-            `<td colspan="2" style="padding:0 0 4px 0;vertical-align:top;">
-              <div style="font-size:11px;letter-spacing:0.04em;text-transform:uppercase;color:#64748b;font-weight:600;margin:0 0 4px;">Ubicación</div>
-              <div style="font-size:14px;line-height:1.45;color:#0f172a;font-weight:600;">${escapeHtml(fields.ubicacion)}</div>
-            </td>`,
-            '</tr>',
-            '</table>',
-        ].join('\n');
-
-    return wrapEmailHtml([
-        claimBlock,
-        '<p style="margin:28px 0 4px;font-size:14px;line-height:1.5;color:#334155;">Atentamente,</p>',
-        '<p style="margin:0;font-size:14px;line-height:1.4;font-weight:700;color:#0f172a;">Atención Ciudadana</p>',
-        '<p style="margin:0 0 24px;font-size:13px;line-height:1.4;color:#64748b;">Municipalidad de Santa Fe</p>',
-        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;border-top:1px solid #e2e8f0;">',
-        '<tr><td colspan="2" style="padding:16px 0 10px;font-size:12px;line-height:1.5;color:#64748b;font-style:italic;">Por favor no conteste a este correo. Comuníquese por alguno de estos canales:</td></tr>',
-        '<tr>',
-        '<td style="width:50%;padding:0 16px 8px 0;vertical-align:top;font-size:13px;line-height:1.55;color:#334155;">',
-        '<strong style="color:#0f172a;">Teléfono</strong><br>',
-        '<a href="tel:08007775000" style="color:#003b73;text-decoration:none;font-weight:600;">0800 777 5000</a>',
-        '</td>',
-        '<td style="width:50%;padding:0 0 8px 16px;vertical-align:top;font-size:13px;line-height:1.55;color:#334155;">',
-        '<strong style="color:#0f172a;">Presencial</strong><br>',
-        'Salta 2951, Santa Fe',
-        '</td>',
-        '</tr>',
-        '<tr>',
-        '<td colspan="2" style="padding:8px 0 0 0;vertical-align:top;font-size:13px;line-height:1.55;color:#334155;">',
-        '<strong style="color:#0f172a;">Sitio web</strong><br>',
-        '<a href="https://www.santafeciudad.gov.ar/" style="color:#003b73;text-decoration:underline;">santafeciudad.gov.ar</a>',
-        '</td>',
-        '</tr>',
-        '</table>',
-    ].join('\n'));
+    return textToSimpleHtml(buildClaimEmailText(info));
 }
 
 function wrapEmailHtml(inner) {
     return [
         '<!DOCTYPE html>',
-        '<html lang="es">',
-        '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>',
-        '<body style="margin:0;padding:16px 12px;background:#ffffff;">',
-        '<div style="font-family:\'Segoe UI\',Arial,Helvetica,sans-serif;font-size:14px;color:#0f172a;line-height:1.55;max-width:680px;">',
+        '<html lang="es"><head><meta charset="utf-8"></head>',
+        '<body style="margin:0;padding:0;">',
         inner,
-        '</div>',
         '</body></html>',
     ].join('');
 }
 
+function formatPlainLineToHtml(line) {
+    const trimmed = line.trimEnd();
+    if (!trimmed) {
+        return `<p style="${P}">&nbsp;</p>`;
+    }
+
+    const labelMatch = trimmed.match(/^(Solicitud Nro|Subtipo|Ubicaci[oó]n):\s*(.+)$/i);
+    if (labelMatch) {
+        return `<p style="${P}"><strong>${escapeHtml(labelMatch[1])}:</strong> ${escapeHtml(labelMatch[2])}</p>`;
+    }
+
+    if (/^Atentamente,?$/i.test(trimmed)) {
+        return `<p style="margin:18px 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;">${escapeHtml(trimmed)}</p>`;
+    }
+
+    if (/^Atención Ciudadana$/i.test(trimmed)) {
+        return `<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;"><strong>${escapeHtml(trimmed)}</strong></p>`;
+    }
+
+    if (/^Municipalidad de Santa Fe$/i.test(trimmed)) {
+        return `<p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;">${escapeHtml(trimmed)}</p>`;
+    }
+
+    if (/^Por favor no conteste/i.test(trimmed)) {
+        return `<p style="margin:8px 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#333333;"><em>${escapeHtml(trimmed)}</em></p>`;
+    }
+
+    if (/^https:\/\/www\.santafeciudad\.gov\.ar\/?$/i.test(trimmed)) {
+        return `<p style="${P}"><a href="https://www.santafeciudad.gov.ar/" style="color:#0645AD;">https://www.santafeciudad.gov.ar/</a></p>`;
+    }
+
+    if (/^0800\s*777\s*5000$/i.test(trimmed)) {
+        return `<p style="${P}"><a href="tel:08007775000" style="color:#111111;text-decoration:none;">${escapeHtml(trimmed)}</a></p>`;
+    }
+
+    return `<p style="${P}">${escapeHtml(trimmed)}</p>`;
+}
+
 function textToSimpleHtml(text) {
     const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-    const body = lines.map(formatPlainLineToHtml).join('\n');
-    return wrapEmailHtml(body);
+    return wrapEmailHtml(lines.map(formatPlainLineToHtml).join('\n'));
 }
 
 /**
