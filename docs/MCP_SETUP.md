@@ -23,7 +23,7 @@ Copy-Item .cursor\mcp.json.example .cursor\mcp.json
 
 4. Reiniciá Cursor (o recargá MCP en **Settings → Tools & MCP**).
 
-El backend de este proyecto en Render suele ser: `whatsapp-pdf-bot-backend`.
+El MCP de Render es opcional (monitoreo). **Los bots de prod no corren en Render**: viven en Docker local. Si Render sigue desplegado con `SESSION_ID=pai` o `licencias`, apagalo / suspendelo o WhatsApp entra en loop 440.
 
 ## Supabase
 

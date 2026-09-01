@@ -1,4 +1,8 @@
-# Stack Docker local — espejo Render (pai + licencias + SAC + tunnels).
+# Stack Docker local = PROD (pai + licencias + SAC + tunnels).
+#
+# No levantar las mismas session_id (pai / licencias) en Render, PM2 u otra
+# máquina: WhatsApp echa a uno de los dos (disconnect 440 conflict).
+# Render debe quedar suspendido. GitHub keep-alive a onrender está apagado.
 #
 # Prod (default): puertos 3001/3002/9100, sessions pai/licencias.
 #   docker compose --profile tunnels up -d

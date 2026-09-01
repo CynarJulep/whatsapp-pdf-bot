@@ -68,7 +68,7 @@ function resolveSacPath(pathname) {
 }
 
 /**
- * Proxy seguro /api/sac/* → backend Render /sac/*
+ * Proxy seguro /api/sac/* → bot PAI local (Docker) /sac/*
  * Inyecta x-sac-automation-token desde env (nunca expuesto al browser).
  */
 export default async (req, context) => {
@@ -103,6 +103,12 @@ export default async (req, context) => {
   }
 
   const BACKEND_URL = await resolveBackendUrl('pai');
+  if (!BACKEND_URL) {
+    return json(503, {
+      success: false,
+      message: 'Backend SAC local no publicado. ¿Está el contenedor pai + tunnels?',
+    });
+  }
   const target = `${BACKEND_URL}${targetPath}${url.search}`;
 
   const headers = new Headers();

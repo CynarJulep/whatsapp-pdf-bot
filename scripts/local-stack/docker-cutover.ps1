@@ -1,4 +1,5 @@
 # Cutover / arranque prod: PM2 off → Docker con sessions reales + tunnels.
+# Render debe quedar suspendido: no compartir session_id pai/licencias.
 
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))

@@ -33,7 +33,7 @@ $sacPassword = Read-DotEnvValue $localEnv 'SAC_PASSWORD'
 if (-not $sacPassword) { $sacPassword = Read-DotEnvValue $envFile 'SAC_PASSWORD' }
 $backendUrl = Read-DotEnvValue $localEnv 'SAC_BACKEND_URL'
 if (-not $backendUrl) { $backendUrl = Read-DotEnvValue $envFile 'SAC_BACKEND_URL' }
-if (-not $backendUrl) { $backendUrl = 'https://whatsapp-pdf-bot-backend.onrender.com' }
+if (-not $backendUrl) { $backendUrl = 'http://127.0.0.1:3001' }
 
 $token = $null
 if (Test-Path $tokenFile) { $token = (Get-Content $tokenFile -Raw).Trim() }

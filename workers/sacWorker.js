@@ -6,8 +6,10 @@ require('dotenv').config(
 
 const { runSacSingleClaimFetch } = require('../services/sacAutomation');
 
+// Worker opcional en esta PC. El camino normal es SAC_PROCESS_JOBS=true
+// dentro del contenedor `pai`. Nunca default a Render (conflicto de sesión).
 const backendUrl = (
-  process.env.SAC_BACKEND_URL || 'https://whatsapp-pdf-bot-backend.onrender.com'
+  process.env.SAC_BACKEND_URL || 'http://127.0.0.1:3001'
 ).replace(/\/$/, '');
 const token = process.env.SAC_AUTOMATION_TOKEN || '';
 const pollMs = Math.max(2000, Number(process.env.SAC_WORKER_POLL_MS || 3000));
@@ -96,7 +98,7 @@ async function processJob(job) {
 }
 
 async function recoverWithRetry() {
-  // Tras apagar/encender la PC, Render puede estar dormido unos segundos.
+  // Tras apagar/encender la PC, Docker/tunnels pueden tardar unos segundos.
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     try {
       await api('/sac/worker/recover', { method: 'POST' });

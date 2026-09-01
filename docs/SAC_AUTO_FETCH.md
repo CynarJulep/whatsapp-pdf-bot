@@ -4,31 +4,36 @@
 
 El operador escribe **número + año** en la UI. El backend descarga el PDF del portal SAC con Playwright, lo guarda en Supabase Storage y la página lo muestra en el preview existente para enviarlo por WhatsApp (igual que un PDF cargado a mano).
 
-## Arquitectura (cloud-first)
+## Arquitectura (Docker local = prod)
 
 ```
-Operador → Netlify (UI + sac-proxy) → Render (index.js + Playwright)
-                                         ↓
-                                   sac_jobs (Supabase)
-                                         ↓
-                                   Storage pdfs/
-                                         ↓
-                                   Preview → /send-pdf → WhatsApp
+Operador → Netlify (UI + sac-proxy) → tunnel Cloudflare → contenedor pai
+                                                              ↓
+                                                        Playwright / SAC
+                                                              ↓
+                                                        sac_jobs (Supabase)
+                                                              ↓
+                                                        Storage pdfs/
+                                                              ↓
+                                                        Preview → /send-pdf → WhatsApp
 ```
 
 - Frontend: formulario en `frontend/src/App.jsx` (`SacClaimSearch`).
 - Proxy: `netlify/functions/sac-proxy.mjs` inyecta `SAC_AUTOMATION_TOKEN`.
-- Backend: `POST /sac/fetch-single-claim`, `GET /sac/jobs/:id` en `index.js`.
-- Automatización: `services/sacAutomation.js` (Playwright Chromium).
-- Sesión SAC: disco local + tabla `sac_session_state` (sobrevive reinicios).
+- Backend: `POST /sac/fetch-single-claim`, `GET /sac/jobs/:id` en `index.js` (contenedor `pai`).
+- Automatización: `services/sacAutomation.js` (Playwright Chromium en Docker).
+- Sesión SAC: volumen `./.sac-session` + tabla `sac_session_state`.
+
+No uses Render para SAC ni para el bot: misma `session_id` que Docker → WhatsApp 440.
 
 ## Variables de entorno
 
-### Render (backend)
+### Docker `pai` (`.env` / compose)
 
 | Variable | Valor |
 |----------|--------|
 | `SAC_FEATURE_ENABLED` | `true` |
+| `SAC_PROCESS_JOBS` | `true` |
 | `SAC_USER` | usuario portal SAC |
 | `SAC_PASSWORD` | contraseña portal SAC |
 | `SAC_AUTOMATION_TOKEN` | secret largo aleatorio (obligatorio en producción) |
@@ -40,8 +45,9 @@ Operador → Netlify (UI + sac-proxy) → Render (index.js + Playwright)
 
 | Variable | Valor |
 |----------|--------|
-| `SAC_AUTOMATION_TOKEN` | **el mismo** secret que en Render |
-| `RENDER_BACKEND_URL` | `https://whatsapp-pdf-bot-backend.onrender.com` (opcional) |
+| `SAC_AUTOMATION_TOKEN` | **el mismo** secret que en el contenedor `pai` |
+
+El destino del bot sale del registry de tunnels, no de `RENDER_BACKEND_URL`.
 
 No pongas el token en el JavaScript del browser.
 
@@ -68,11 +74,11 @@ npm run backend
 
 ## Prueba controlada (spike)
 
-1. Activar feature + credenciales en Render y redesplegar.
-2. Desde una máquina con acceso:
+1. Docker `pai` con SAC enabled (`npm run docker:up`).
+2. Desde esta PC:
 
 ```powershell
-curl -X POST https://whatsapp-pdf-bot-backend.onrender.com/sac/fetch-single-claim `
+curl -X POST http://127.0.0.1:3001/sac/fetch-single-claim `
   -H "Content-Type: application/json" `
   -H "x-sac-automation-token: TU_TOKEN" `
   -d "{\"numeroReclamo\":\"12345\",\"anio\":2026}"
@@ -81,7 +87,7 @@ curl -X POST https://whatsapp-pdf-bot-backend.onrender.com/sac/fetch-single-clai
 3. Poll:
 
 ```powershell
-curl https://whatsapp-pdf-bot-backend.onrender.com/sac/jobs/JOB_ID `
+curl http://127.0.0.1:3001/sac/jobs/JOB_ID `
   -H "x-sac-automation-token: TU_TOKEN"
 ```
 
@@ -97,18 +103,18 @@ Criterio de éxito: varias descargas consecutivas correctas antes de uso general
 3. Envío: si vino de SAC, **no re-sube** el PDF; usa `storagePath` en `/send-pdf`.
 4. Carga manual sigue disponible debajo.
 
-## Fallback: PC del trabajo (worker saliente)
+## Fallback: worker SAC aparte (headless bloqueado)
 
-Si Render/datacenter no puede loguear al SAC (bloqueo IP / headless):
+Si Chromium headless en Docker no pasa Cloudflare:
 
-1. En Render configurar `SAC_FEATURE_ENABLED=true` y `SAC_PROCESS_JOBS=false`. Render mantiene la API y deja los jobs `queued` en Supabase.
-2. En la PC Windows de oficina:
+1. En compose de `pai`: `SAC_PROCESS_JOBS=false`. El API sigue en Docker y deja jobs `queued`.
+2. En esta misma PC:
 
 ```powershell
 npm install
 npm run playwright:install
-$env:SAC_BACKEND_URL="https://whatsapp-pdf-bot-backend.onrender.com"
-$env:SAC_AUTOMATION_TOKEN="el mismo token configurado en Render"
+$env:SAC_BACKEND_URL="http://127.0.0.1:3001"
+$env:SAC_AUTOMATION_TOKEN="el mismo token del contenedor pai"
 # Solo hacen falta si la sesión guardada expiró:
 $env:SAC_USER="..."
 $env:SAC_PASSWORD="..."
@@ -139,7 +145,7 @@ El repo Python `sac-pdf-reclamos` queda como referencia de selectores, no como s
 
 ## Seguridad
 
-- Token SAC solo en Render + Netlify Function.
+- Token SAC solo en Docker `.env` + Netlify Function.
 - URLs de PDF firmadas (TTL ~15 min), no públicas permanentes en jobs nuevos.
 - Rate limit básico en el proxy Netlify.
 - La Function **oculta** el secret; no reemplaza login de operadores. Para uso real conviene restringir el sitio (auth Netlify / allowlist) antes de operar con reclamos sensibles.

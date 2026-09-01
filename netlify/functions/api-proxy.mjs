@@ -1,8 +1,9 @@
 import { resolveBackendUrl } from './lib/resolve-backend.mjs';
 
 /**
- * Proxy genérico /api/* → backend (tunnel local vía registry Supabase, o env).
+ * Proxy genérico /api/* → bot Docker local (tunnel vía registry Supabase).
  * /api/sac queda en sac-proxy.mjs (force=true en netlify.toml).
+ * No hay fallback a Render: misma sesión WhatsApp = conflicto 440.
  */
 export default async (req) => {
   if (req.method === 'OPTIONS') {
@@ -38,6 +39,15 @@ export default async (req) => {
   }
 
   const BACKEND_URL = await resolveBackendUrl('pai');
+  if (!BACKEND_URL) {
+    return new Response(JSON.stringify({
+      success: false,
+      message: 'Backend local no publicado. ¿Están Docker + tunnels? Revisá el registry de Supabase.',
+    }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+  }
   const dest = `${BACKEND_URL}${targetPath}${incoming.search}`;
   const headers = new Headers(req.headers);
   headers.delete('host');

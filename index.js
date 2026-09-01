@@ -559,11 +559,11 @@ async function connectToWhatsApp() {
 }
 
 // ----------------------------------------------------
-// Keep-Alive
+// Keep-Alive (socket WhatsApp — el proceso Docker no hiberna)
 // - Presence cada ~12 min: mantiene el socket Baileys activo
-// - Self-message cada 6 h: igual que el bot PDF (señal fuerte a WA)
-// - /ping: endpoint liviano para cron externo (Netlify / UptimeRobot)
-//   → evita hibernación de Render (suele dormir ~15 min sin HTTP)
+// - Self-message cada 6 h: señal fuerte a WA
+// - /ping: health para Netlify scheduled / dashboard / tunnels
+//   (ya no hay keep-alive hacia Render: ese host pelea la sesión 440)
 // ----------------------------------------------------
 const PRESENCE_KEEPALIVE_MS = Number(process.env.PRESENCE_KEEPALIVE_MS || 12 * 60 * 1000);
 const SELF_PING_MS = Number(process.env.SELF_PING_MS || 6 * 60 * 60 * 1000);
@@ -602,7 +602,7 @@ setInterval(async () => {
 // Express Endpoint Webhook
 // ----------------------------------------------------
 
-// Ping liviano para keep-alive externo (cron / UptimeRobot / Netlify scheduled / GitHub Actions)
+// Ping liviano para health checks (Netlify scheduled, dashboard, tunnels)
 app.get('/ping', (req, res) => {
     res.status(200).json({
         ok: true,

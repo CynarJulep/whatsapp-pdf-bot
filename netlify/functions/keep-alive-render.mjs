@@ -1,6 +1,7 @@
 /**
- * Keep-alive: pega /ping a los backends publicados en el registry (o env).
- * Ya no depende de Render free; sirve para detectar si el tunnel local cayó.
+ * Health del tunnel local (cada 10 min).
+ * Lee el registry Supabase → Cloudflare → Docker en esta PC.
+ * No despierta Render: si el registry apunta a onrender, resolve-backend lo descarta.
  */
 import { resolveBackendUrl } from './lib/resolve-backend.mjs';
 
@@ -44,6 +45,7 @@ export default async (req) => {
   const pai = await resolveBackendUrl('pai');
   const licencias = await resolveBackendUrl('licencias');
   const unique = [...new Set([pai, licencias].filter(Boolean))];
+  // unique no incluye onrender: resolve-backend las descarta a propósito.
 
   const results = [];
   for (const base of unique) {

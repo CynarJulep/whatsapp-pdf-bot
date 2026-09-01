@@ -1,10 +1,18 @@
-# Keep-alive del backend Render (plan free ~15 min de idle).
-# Respaldo del scheduled function de Netlify: pega /ping cada 10 minutos.
-name: Keep-alive Render
+# Keep-alive LOCAL — no pegar Render.
+#
+# Histórico: este workflow despertaba whatsapp-pdf-bot-backend.onrender.com
+# y whatsapp-licencias-bot.onrender.com cada 10 min (plan free). Eso mantenía
+# un segundo bot vivo con las mismas session_id que Docker → WhatsApp 440.
+#
+# Prod actual = Docker en la PC + tunnels + Netlify.
+# El ping útil es la scheduled function de Netlify (keep-alive-render.mjs),
+# que lee el registry de tunnels. Este workflow queda SOLO manual, y si se
+# dispara pega el sitio (proxy → tunnel), nunca onrender.
+#
+# En GitHub está disabled_manually. No lo reactives con URLs de Render.
+name: Keep-alive local
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,14 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Ping PAI backend
+      - name: Ping sitio Netlify (proxy al Docker local)
         run: |
           set -e
-          for url in \
-            "https://whatsapp-pdf-bot-backend.onrender.com/ping" \
-            "https://whatsapp-licencias-bot.onrender.com/ping"
-          do
-            echo "→ $url"
-            curl -fsS --max-time 25 -H "Accept: application/json" "$url" || echo "WARN: falló $url"
-            echo
-          done
+          url="https://ac-pai-wp.netlify.app/api/ping"
+          echo "→ $url"
+          curl -fsS --max-time 25 -H "Accept: application/json" "$url"
+          echo

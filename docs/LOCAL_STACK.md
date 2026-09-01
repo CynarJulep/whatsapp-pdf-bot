@@ -1,6 +1,8 @@
-# Stack local gratis (PC siempre encendida)
+# Stack local = PROD (PC siempre encendida)
 
-Espejo de los 2 servicios Render (`pai` + `licencias`) en esta PC. **Prod actual = Docker Compose**.
+**Prod actual = Docker Compose en esta PC.** Netlify (`https://ac-pai-wp.netlify.app`) es el sitio + proxy. Los bots **no** corren en Render.
+
+> No levantes `whatsapp-pdf-bot-backend` / `whatsapp-licencias-bot` en Render al mismo tiempo: mismas `session_id` (`pai`, `licencias`) → WhatsApp **440 conflict** (se “apaga y prende”). El keep-alive de GitHub a onrender está deshabilitado. Suspendé esos servicios en el dashboard si siguen vivos.
 
 ## Qué incluye (Docker — prod)
 
@@ -11,7 +13,7 @@ Espejo de los 2 servicios Render (`pai` + `licencias`) en esta PC. **Prod actual
 | `dashboard` | 9100 | — | Métricas en vivo |
 | `tunnels` | — | profile `tunnels` | Cloudflare Quick Tunnels + registry Supabase |
 
-Auth Baileys en **Supabase** (igual que Render): al reiniciar suele reconectar **sin QR nuevo**. Si aparece QR en `/status`, escanearlo desde WhatsApp → dispositivos vinculados.
+Auth Baileys en **Supabase**. Al reiniciar Docker suele reconectar **sin QR nuevo**. Si aparece QR en `/status`, escanearlo desde WhatsApp → dispositivos vinculados.
 
 ```powershell
 npm run docker:up         # compose + tunnels
@@ -116,12 +118,14 @@ npm run local:autostart
 
 ```powershell
 cd C:\Renzo\WHATSAPP
-# .env con secrets (mismo que Render)
+# .env con secrets (Supabase, SAC, SMTP)
 npm run docker:up
 npm run docker:always-on
 ```
 
 ## Notas
 
-- Keep-alive de GitHub/Netlify ya no es crítico (la PC no se duerme como Render free).
-- Rotá la API key de Render si la pegaste en el chat.
+- Keep-alive HTTP a Render **no** debe existir: despierta un segundo bot y pelea la sesión.
+- La scheduled function de Netlify pega `/ping` al tunnel del registry (Docker).
+- GitHub Actions `Keep-alive Render` está disabled y ya no pega onrender.
+- Si algún día hace falta Render de backup: **primero** `docker compose --profile tunnels down`, después levantar Render. Nunca los dos.

@@ -229,7 +229,7 @@ async function assertNoHeadlessCloudflareChallenge(page) {
   if (!challengeFrame) return;
 
   throw new Error(
-    'Cloudflare Turnstile bloqueó la automatización desde Render. '
+    'Cloudflare Turnstile bloqueó la automatización headless. '
     + 'Ejecutá el worker SAC local con SAC_HEADLESS=false.'
   );
 }

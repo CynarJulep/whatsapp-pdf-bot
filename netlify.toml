@@ -15,7 +15,7 @@
   node_bundler = "esbuild"
 
 # Proxy seguro SAC → Function (inyecta SAC_AUTOMATION_TOKEN).
-# force=true gana al redirect genérico /api/* hacia Render.
+# force=true gana al redirect genérico /api/* (backend = Docker local vía registry).
 [[redirects]]
   from = "/api/sac"
   to = "/.netlify/functions/sac-proxy/sac"
@@ -29,7 +29,7 @@
   force = true
 
 # Proxy genérico del resto del backend (status, send-pdf, groups, etc.)
-# Destino real = env BACKEND_URL / RENDER_BACKEND_URL (tunnel local o Render).
+# Destino real = registry de tunnels (Docker local). Nunca Render.
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api-proxy/:splat"

@@ -8,9 +8,14 @@ app_port: 7860
 pinned: false
 ---
 
-# Guía de Inicialización y Despliegue: WhatsApp PDF Office Automation (Hugging Face Spaces)
+# WhatsApp PDF Office Automation
 
-Este sistema permite a operadores de oficina subir archivos PDF a una interfaz web (Netlify) y enviarlos de manera automatizada a través de WhatsApp Business, persistiendo la sesión de conexión de forma permanente en Supabase (PostgreSQL) y procesando las solicitudes en un backend Docker gratuito corriendo 24/7 en **Hugging Face Spaces**.
+**Prod actual:** Docker Compose en esta PC (`docs/LOCAL_STACK.md`) + sitio `https://ac-pai-wp.netlify.app`.  
+No uses Render ni Hugging Face para los bots `pai` / `licencias` al mismo tiempo: WhatsApp corta con 440.
+
+Lo que sigue es la guía histórica de Spaces; no es el deploy que está en uso.
+
+---
 
 ---
 

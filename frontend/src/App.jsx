@@ -139,7 +139,6 @@ function PdfCanvasViewer({ file }) {
 // ── Config ─────────────────────────────────────────────────────────────────────
 const DEFAULT_SUPABASE_URL = 'https://hltyozdvcqfmvqmyrlva.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhsdHlvemR2Y3FmbXZxbXlybHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNjE5OTEsImV4cCI6MjA5NTYzNzk5MX0.bidc0Iq1-2ztsa6oazqrkt4DJ5b4rBSnIC1PM1E733U';
-const DEFAULT_BACKEND_URL = 'https://whatsapp-pdf-bot-backend.onrender.com';
 const MAX_RECIPIENTS = 3;
 
 const getParam = (param, def) => {
@@ -148,13 +147,14 @@ const getParam = (param, def) => {
   return localStorage.getItem(param.toUpperCase()) || def;
 };
 
-// In dev mode (no railway_url param configured), use '/api' so Vite's
-// proxy rewrites requests to localhost:3000 automatically.
-// In production, the full Render URL is used via the railway_url param.
+// Front siempre habla con '/api' (Vite en local, Netlify Functions en prod).
+// El proxy resuelve el tunnel de Docker; no pegar Render (sesión WA 440).
+// Si quedó un railway_url viejo a onrender.com en localStorage / Google Sites, se ignora.
 const supabaseUrl = getParam('supabase_url', DEFAULT_SUPABASE_URL);
 const supabaseKey = getParam('supabase_anon_key', DEFAULT_SUPABASE_ANON_KEY);
 const _configuredBackendUrl = getParam('railway_url', null);
-const backendUrl  = _configuredBackendUrl || '/api';
+const _retiredCloud = /onrender\.com|\.hf\.space/i.test(String(_configuredBackendUrl || ''));
+const backendUrl = (_configuredBackendUrl && !_retiredCloud) ? _configuredBackendUrl : '/api';
 const supabase    = createClient(supabaseUrl, supabaseKey);
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
