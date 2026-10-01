@@ -121,6 +121,7 @@ services:
       - ./.sac-session:/app/.sac-session
       - tunnel-bin:/app/local-stack/bin
       - tunnel-state:/app/local-stack/state
+      - ./local-stack/tunnel:/app/local-stack/tunnel:ro
 
   # Vigila bots/tunnels: reconnect si stalled; alerta si hace falta QR.
   maintain:

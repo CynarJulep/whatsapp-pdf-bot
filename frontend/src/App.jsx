@@ -149,12 +149,10 @@ const getParam = (param, def) => {
 
 // Front siempre habla con '/api' (Vite en local, Netlify Functions en prod).
 // El proxy resuelve el tunnel de Docker; no pegar Render (sesión WA 440).
-// Si quedó un railway_url viejo a onrender.com en localStorage / Google Sites, se ignora.
+// Ignorar direcciones guardadas: un quick tunnel anterior deja de existir al reiniciar.
 const supabaseUrl = getParam('supabase_url', DEFAULT_SUPABASE_URL);
 const supabaseKey = getParam('supabase_anon_key', DEFAULT_SUPABASE_ANON_KEY);
-const _configuredBackendUrl = getParam('railway_url', null);
-const _retiredCloud = /onrender\.com|\.hf\.space/i.test(String(_configuredBackendUrl || ''));
-const backendUrl = (_configuredBackendUrl && !_retiredCloud) ? _configuredBackendUrl : '/api';
+const backendUrl = '/api';
 const supabase    = createClient(supabaseUrl, supabaseKey);
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

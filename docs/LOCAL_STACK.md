@@ -96,7 +96,7 @@ Los quick tunnels rotan al reiniciar. El servicio `tunnels` publica las URLs en:
 
 `https://hltyozdvcqfmvqmyrlva.supabase.co/storage/v1/object/public/runtime/backend-endpoints.json`
 
-Netlify lee ese JSON (cache ~15s).
+Netlify lee ese JSON (cache ~15s). El frontend usa siempre `/api`, ignorando direcciones de túneles anteriores guardadas en el navegador o en `railway_url`. Los túneles usan HTTP/2 para evitar los cortes de UDP/QUIC observados en la red de la oficina. Su script está montado desde `local-stack/tunnel`, por lo que reiniciar solamente `tunnels` aplica cambios sin reiniciar los bots.
 
 ## Sin escritorio abierto (PC compartida)
 

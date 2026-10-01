@@ -137,7 +137,8 @@ function writeTunnels(partial) {
 
 function startTunnel(name, targetUrl) {
   const bin = resolveCloudflared();
-  const args = ['tunnel', '--url', targetUrl, '--no-autoupdate'];
+  // HTTP/2 evita los cortes de UDP/QUIC observados en la red de la oficina.
+  const args = ['tunnel', '--protocol', 'http2', '--url', targetUrl, '--no-autoupdate'];
   console.log(`[tunnels] starting ${name}: ${bin} ${args.join(' ')}`);
 
   const child = spawn(bin, args, {
