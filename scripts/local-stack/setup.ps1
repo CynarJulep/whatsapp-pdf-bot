@@ -37,7 +37,8 @@ if (-not (Test-Path $envFile)) {
   if ($RenderApiKey) {
     Write-Host '==> Importing env from Render'
     $headers = @{ Authorization = "Bearer $RenderApiKey"; Accept = 'application/json' }
-    $svcId = 'srv-d8cs73eq1p3s73ak3fp0'
+    $svcId = $env:RENDER_SERVICE_ID
+    if (-not $svcId) { throw 'Set RENDER_SERVICE_ID to import env vars from Render.' }
     $vars = Invoke-RestMethod -Uri "https://api.render.com/v1/services/$svcId/env-vars" -Headers $headers
     $lines = New-Object System.Collections.Generic.List[string]
     foreach ($item in $vars) {

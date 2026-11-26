@@ -2,7 +2,7 @@
 
 Antes de usar la pestaña **Grupos** en configuración, ejecutá el SQL en Supabase:
 
-1. Abrí [Supabase Dashboard](https://supabase.com/dashboard) → proyecto **hltyozdvcqfmvqmyrlva**
+1. Abrí [Supabase Dashboard](https://supabase.com/dashboard) → el proyecto de tu `SUPABASE_URL`
 2. **SQL Editor** → New query
 3. Pegá y ejecutá el contenido de `migration_groups.sql` (o la sección 6 de `schema.sql`)
 

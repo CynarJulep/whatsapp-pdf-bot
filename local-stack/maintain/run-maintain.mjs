@@ -21,9 +21,16 @@ const INTERVAL_MS = Math.max(15000, Number(process.env.MAINTAIN_INTERVAL_MS || 4
 const STALL_GRACE_MS = Math.max(20000, Number(process.env.MAINTAIN_STALL_GRACE_MS || 90000));
 const PAI_URL = (process.env.PAI_URL || 'http://pai:7860').replace(/\/$/, '');
 const LIC_URL = (process.env.LICENCIAS_URL || 'http://licencias:7860').replace(/\/$/, '');
-const REGISTRY_URL =
-  process.env.BACKEND_REGISTRY_URL ||
-  'https://hltyozdvcqfmvqmyrlva.supabase.co/storage/v1/object/public/runtime/backend-endpoints.json';
+function registryUrl() {
+  if (process.env.BACKEND_REGISTRY_URL) return process.env.BACKEND_REGISTRY_URL;
+  const base = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+  if (!base) return '';
+  const bucket = process.env.BACKEND_REGISTRY_BUCKET || 'runtime';
+  const objectName = process.env.BACKEND_REGISTRY_OBJECT || 'backend-endpoints.json';
+  return `${base}/storage/v1/object/public/${bucket}/${objectName}`;
+}
+
+const REGISTRY_URL = registryUrl();
 
 const firstSeenStall = new Map();
 const lastReconnectAt = new Map();
@@ -41,6 +48,10 @@ function writeAlerts(payload) {
 function fetchJson(url, timeoutMs = 8000) {
   return new Promise((resolve) => {
     try {
+      if (!url) {
+        resolve({ ok: false, error: 'missing url' });
+        return;
+      }
       const lib = url.startsWith('https') ? https : http;
       const req = lib.get(url, { timeout: timeoutMs }, (res) => {
         let body = '';

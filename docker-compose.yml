@@ -91,6 +91,11 @@ services:
       DASHBOARD_PORT: "9100"
       PAI_URL: http://pai:7860
       LICENCIAS_URL: http://licencias:7860
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      BACKEND_REGISTRY_URL: ${BACKEND_REGISTRY_URL:-}
+      BACKEND_REGISTRY_BUCKET: ${BACKEND_REGISTRY_BUCKET:-runtime}
+      BACKEND_REGISTRY_OBJECT: ${BACKEND_REGISTRY_OBJECT:-backend-endpoints.json}
     ports:
       - "${DASHBOARD_HOST_PORT:-9100}:9100"
     depends_on:
@@ -139,6 +144,10 @@ services:
       PAI_URL: http://pai:7860
       LICENCIAS_URL: http://licencias:7860
       MAINTAIN_INTERVAL_MS: "45000"
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      BACKEND_REGISTRY_URL: ${BACKEND_REGISTRY_URL:-}
+      BACKEND_REGISTRY_BUCKET: ${BACKEND_REGISTRY_BUCKET:-runtime}
+      BACKEND_REGISTRY_OBJECT: ${BACKEND_REGISTRY_OBJECT:-backend-endpoints.json}
     depends_on:
       pai:
         condition: service_started

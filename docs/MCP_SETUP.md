@@ -29,4 +29,4 @@ El MCP de Render es opcional (monitoreo). **Los bots de prod no corren en Render
 
 - URL del MCP: `https://mcp.supabase.com/mcp`
 - En Cursor, conectá el servidor **supabase** con OAuth desde **Settings → Tools & MCP** (botón Connect).
-- Proyecto PAI: `hltyozdvcqfmvqmyrlva`
+- Proyecto: el `ref` que figura en `SUPABASE_URL` (no lo dejes escrito en el repo).

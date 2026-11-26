@@ -12,5 +12,6 @@ SELECT cron.unschedule('keep-alive-render-whatsapp');
 SELECT cron.schedule(
     'keep-alive-render-whatsapp',
     '*/10 * * * *', -- Cada 10 minutos
-    $$ SELECT net.http_get('https://whatsapp-pdf-bot-backend.onrender.com/status') $$
+    -- Reemplazá example.invalid por el /status de TU backend antes de ejecutar esto.
+    $$ SELECT net.http_get('https://example.invalid/status') $$
 );

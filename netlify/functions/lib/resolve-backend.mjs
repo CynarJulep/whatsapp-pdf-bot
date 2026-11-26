@@ -2,7 +2,7 @@
  * Resuelve la URL del backend en runtime.
  *
  * Prod = Docker en esta PC (pai :3001 / licencias :3002) publicado por
- * Cloudflare Quick Tunnels. Netlify (ac-pai-wp.netlify.app) es solo el
+ * Cloudflare Quick Tunnels. Netlify es solo el
  * front + proxy: no hay bot en Render ni Hugging Face.
  *
  * Orden:
@@ -50,7 +50,8 @@ function envFallback(kind = 'pai') {
 }
 
 function registryPublicUrl() {
-  const base = (process.env.SUPABASE_URL || 'https://hltyozdvcqfmvqmyrlva.supabase.co').replace(/\/$/, '');
+  const base = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+  if (!base) return null;
   const bucket = process.env.BACKEND_REGISTRY_BUCKET || 'runtime';
   return `${base}/storage/v1/object/public/${bucket}/${REGISTRY_PATH}`;
 }
@@ -61,23 +62,26 @@ export async function resolveBackendUrl(kind = 'pai') {
     return cache[kind];
   }
 
-  try {
-    const res = await fetch(registryPublicUrl(), {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const pai = cleanUrl(data.pai);
-      const licencias = cleanUrl(data.licencias);
-      if (pai || licencias) {
-        cache = { at: now, pai: pai || null, licencias: licencias || null };
-        const picked = kind === 'licencias' ? (licencias || pai) : (pai || licencias);
-        if (picked) return picked;
+  const registryUrl = registryPublicUrl();
+  if (registryUrl) {
+    try {
+      const res = await fetch(registryUrl, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const pai = cleanUrl(data.pai);
+        const licencias = cleanUrl(data.licencias);
+        if (pai || licencias) {
+          cache = { at: now, pai: pai || null, licencias: licencias || null };
+          const picked = kind === 'licencias' ? (licencias || pai) : (pai || licencias);
+          if (picked) return picked;
+        }
       }
+    } catch {
+      // registry caído — probamos env (nunca Render)
     }
-  } catch {
-    // registry caído — probamos env (nunca Render)
   }
 
   return envFallback(kind);

@@ -137,7 +137,7 @@
                         
                         <!-- Hidden standard input expected by original code -->
                         <input type="hidden" id="phone-number" name="phone-number">
-                        <p class="text-[11px] text-slate-500">Busca un contacto activo o ingresa un número directo con código de país (Ej: 549342...).</p>
+                        <p class="text-[11px] text-slate-500">Busca un contacto activo o ingresa un número directo con código de país (Ej: 5491100000000).</p>
                     </div>
 
                     <!-- Drag & Drop Zone -->
@@ -235,7 +235,7 @@
             <form id="add-contact-form" class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-900/30 p-3 rounded-xl border border-slate-800/50">
                 <input type="text" id="new-contact-name" placeholder="Nombre completo" required
                        class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-white font-medium">
-                <input type="text" id="new-contact-phone" placeholder="Teléfono (ej: 549342...)" required
+                <input type="text" id="new-contact-phone" placeholder="Teléfono (ej: 5491100000000)" required
                        class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-white font-medium">
                 <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg px-4 py-2 text-xs transition-all duration-200 cursor-pointer">
                     Agregar Contacto
@@ -282,9 +282,9 @@
         // ==========================================
         // CONFIGURACIÓN - VARIABLES DE ENTORNO
         // ==========================================
-        const SUPABASE_URL = "https://hltyozdvcqfmvqmyrlva.supabase.co";
-        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhsdHlvemR2Y3FmbXZxbXlybHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNjE5OTEsImV4cCI6MjA5NTYzNzk5MX0.bidc0Iq1-2ztsa6oazqrkt4DJ5b4rBSnIC1PM1E733U";
-        const RAILWAY_URL = "https://whatsapp-pdf-bot-backend.onrender.com"; 
+        const SUPABASE_URL = "YOUR_SUPABASE_URL";
+        const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+        const RAILWAY_URL = "YOUR_RAILWAY_URL"; 
         
         // Dynamic Config Loader (Uses window.location params or localStorage if placeholders are not replaced yet)
         const config = {

@@ -1,8 +1,8 @@
 # Stack local = PROD (PC siempre encendida)
 
-**Prod actual = Docker Compose en esta PC.** Netlify (`https://ac-pai-wp.netlify.app`) es el sitio + proxy. Los bots **no** corren en Render.
+**Prod actual = Docker Compose en esta PC.** El sitio estático (Netlify u otro host) es la UI + proxy. Los bots **no** corren en Render.
 
-> No levantes `whatsapp-pdf-bot-backend` / `whatsapp-licencias-bot` en Render al mismo tiempo: mismas `session_id` (`pai`, `licencias`) → WhatsApp **440 conflict** (se “apaga y prende”). El keep-alive de GitHub a onrender está deshabilitado. Suspendé esos servicios en el dashboard si siguen vivos.
+> No levantes los mismos `session_id` (`pai`, `licencias`) en Render al mismo tiempo que Docker: WhatsApp responde **440 conflict**. El keep-alive de GitHub hacia Render está deshabilitado. Suspendé esos servicios si siguen vivos.
 
 ## Qué incluye (Docker — prod)
 
@@ -28,7 +28,7 @@ npm run docker:cutover    # apaga PM2 y levanta Docker prod
 - Dashboard: http://127.0.0.1:9100  
 - PAI: http://127.0.0.1:3001/status  
 - Licencias: http://127.0.0.1:3002/status  
-- Sitio: https://ac-pai-wp.netlify.app  
+- Sitio: el valor de `PUBLIC_SITE_URL` en `.env`
 
 Skill: `.agents/skills/docker-local-stack/`.
 
@@ -90,11 +90,13 @@ npm run docker:cutover
 
 ## URL estática (sin pagar dominio)
 
-La URL pública **no cambia**: `https://ac-pai-wp.netlify.app`
+La URL pública es `PUBLIC_SITE_URL` (no cambia cuando rota el tunnel).
 
-Los quick tunnels rotan al reiniciar. El servicio `tunnels` publica las URLs en:
+Los quick tunnels rotan al reiniciar. El servicio `tunnels` publica las URLs en el objeto público:
 
-`https://hltyozdvcqfmvqmyrlva.supabase.co/storage/v1/object/public/runtime/backend-endpoints.json`
+`$SUPABASE_URL/storage/v1/object/public/$BACKEND_REGISTRY_BUCKET/$BACKEND_REGISTRY_OBJECT`
+
+(por defecto `runtime/backend-endpoints.json`).
 
 Netlify lee ese JSON (cache ~15s). El frontend usa siempre `/api`, ignorando direcciones de túneles anteriores guardadas en el navegador o en `railway_url`. Los túneles usan HTTP/2 para evitar los cortes de UDP/QUIC observados en la red de la oficina. Su script está montado desde `local-stack/tunnel`, por lo que reiniciar solamente `tunnels` aplica cambios sin reiniciar los bots.
 
@@ -117,7 +119,7 @@ npm run local:autostart
 ## Setup (una vez)
 
 ```powershell
-cd C:\Renzo\WHATSAPP
+cd C:\path\to\whatsapp-pdf-bot
 # .env con secrets (Supabase, SAC, SMTP)
 npm run docker:up
 npm run docker:always-on

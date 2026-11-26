@@ -137,8 +137,8 @@ function PdfCanvasViewer({ file }) {
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────────
-const DEFAULT_SUPABASE_URL = 'https://hltyozdvcqfmvqmyrlva.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhsdHlvemR2Y3FmbXZxbXlybHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNjE5OTEsImV4cCI6MjA5NTYzNzk5MX0.bidc0Iq1-2ztsa6oazqrkt4DJ5b4rBSnIC1PM1E733U';
+const DEFAULT_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const DEFAULT_SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 const MAX_RECIPIENTS = 3;
 
 const getParam = (param, def) => {
@@ -153,7 +153,9 @@ const getParam = (param, def) => {
 const supabaseUrl = getParam('supabase_url', DEFAULT_SUPABASE_URL);
 const supabaseKey = getParam('supabase_anon_key', DEFAULT_SUPABASE_ANON_KEY);
 const backendUrl = '/api';
-const supabase    = createClient(supabaseUrl, supabaseKey);
+const supabase = (supabaseUrl && supabaseKey)
+  ? createClient(supabaseUrl, supabaseKey)
+  : null;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const initials = (name = '') => name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
@@ -2129,7 +2131,7 @@ function ContactsTab({ contacts, onReload, showToast }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="add-phone" className="text-xs font-semibold text-muted-foreground">Teléfono de WhatsApp *</Label>
-              <Input id="add-phone" placeholder="Ej. 549342555555" className="font-mono h-10"
+              <Input id="add-phone" placeholder="Ej. 5491100000000" className="font-mono h-10"
                 value={form.phone} onChange={(e) => setForm(p => ({ ...p, phone: e.target.value }))} />
               <p className="text-[10px] text-muted-foreground">Con código de país e internacional: 549 + código de área sin el 15 + número</p>
             </div>
@@ -2922,6 +2924,7 @@ export default function App() {
   }, []);
 
   const loadContacts = useCallback(async () => {
+    if (!supabase) { setLoadingContacts(false); return; }
     try {
       const { data, error } = await supabase.from('contacts').select('*').order('name');
       if (error) throw error;
@@ -2931,6 +2934,7 @@ export default function App() {
   }, [showToast]);
 
   const loadGroups = useCallback(async () => {
+    if (!supabase) { setLoadingGroups(false); return; }
     try {
       const { data, error } = await supabase.from('whatsapp_groups').select('*').order('name');
       if (error) throw error;
@@ -2943,6 +2947,7 @@ export default function App() {
   }, [showToast]);
 
   const loadShipments = useCallback(async () => {
+    if (!supabase) { setLoadingShipments(false); return; }
     setLoadingShipments(true);
     try {
       const pageSize = 1000;
@@ -2974,6 +2979,7 @@ export default function App() {
   }, [showToast]);
 
   const loadCatalog = useCallback(async () => {
+    if (!supabase) { setLoadingCatalog(false); return; }
     setLoadingCatalog(true);
     try {
       const { data, error } = await supabase
@@ -2991,6 +2997,7 @@ export default function App() {
   }, [showToast]);
 
   const loadProtocol = useCallback(async () => {
+    if (!supabase) return;
     try {
       const { data, error } = await supabase
         .from('protocol_settings')
@@ -3056,6 +3063,7 @@ export default function App() {
   }, [loadContacts, loadGroups, loadShipments, loadCatalog, loadProtocol]);
 
   useEffect(() => {
+    if (!supabase) return undefined;
     const channel = supabase
       .channel('protocol_settings_realtime')
       .on(
@@ -3318,6 +3326,19 @@ export default function App() {
     bringChromeIntoView(headerRef.current);
   };
 
+
+  if (!supabase) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-6">
+        <div className="max-w-md w-full border border-border rounded-lg p-6 space-y-3">
+          <h1 className="text-lg font-semibold">Falta la configuración de Supabase</h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Definí <span className="font-mono text-xs">VITE_SUPABASE_URL</span> y <span className="font-mono text-xs">VITE_SUPABASE_ANON_KEY</span> en el archivo <span className="font-mono text-xs">.env</span> de la raíz (partí de <span className="font-mono text-xs">.env.example</span>) y reiniciá el servidor de desarrollo.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider>

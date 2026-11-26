@@ -628,7 +628,7 @@ app.get('/status', (req, res) => {
         mock_connection: MOCK_CONNECTION,
         sac_enabled: SAC_FEATURE_ENABLED,
         phone_user: isConnected
-            ? (MOCK_CONNECTION ? '549342555555:12@s.whatsapp.net' : (sock?.user?.id || null))
+            ? (MOCK_CONNECTION ? '5491100000000:12@s.whatsapp.net' : (sock?.user?.id || null))
             : null,
         qr: qrCode,
         stalled: !isConnected && !isConnecting && !qrCode,
@@ -1837,7 +1837,7 @@ app.post('/pair-code', requireApiKey, async (req, res) => {
     if (raw.length < 10) {
         return res.status(400).json({
             success: false,
-            message: 'phoneNumber inválido. Usá E.164 sin +: ej. 5493415551234'
+            message: 'phoneNumber inválido. Usá E.164 sin +: ej. 5491100000000'
         });
     }
     try {

@@ -4,7 +4,7 @@
  *  1) local-stack/state/tunnels.json
  *  2) Supabase Storage público (runtime/backend-endpoints.json)
  *
- * Netlify lee el registry en cada request → ac-pai-wp.netlify.app queda estático.
+ * Netlify lee el registry en cada request → el sitio público queda estático.
  *
  * Targets:
  *  - Host/PM2: PAI_PORT / LICENCIAS_PORT → http://127.0.0.1:PORT

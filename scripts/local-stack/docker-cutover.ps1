@@ -29,5 +29,7 @@ Write-Host '[docker:cutover] Listo. Verificá:'
 Write-Host '  http://127.0.0.1:3001/status'
 Write-Host '  http://127.0.0.1:3002/status'
 Write-Host '  http://127.0.0.1:9100'
-Write-Host '  https://ac-pai-wp.netlify.app/api/ping'
+if ($env:PUBLIC_SITE_URL) {
+  Write-Host ("  {0}/api/ping" -f $env:PUBLIC_SITE_URL.TrimEnd('/'))
+}
 Write-Host 'Rollback: docker compose --profile tunnels down ; npm run local:start'

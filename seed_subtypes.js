@@ -2,12 +2,17 @@ require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
 // Config
-const GOOGLE_SHEETS_ID = "1zMLQMbF36_Cpw5712_P2OyV0ns7m_mQMzPDNVu6Ide4";
-const GOOGLE_SHEETS_GID = "1725838782";
+const GOOGLE_SHEETS_ID = process.env.GOOGLE_SHEETS_ID || '';
+const GOOGLE_SHEETS_GID = process.env.GOOGLE_SHEETS_GID || '0';
 const GOOGLE_SHEETS_URL = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEETS_ID}/export?format=csv&gid=${GOOGLE_SHEETS_GID}`;
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "https://hltyozdvcqfmvqmyrlva.supabase.co";
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !GOOGLE_SHEETS_ID) {
+  console.error('Definí SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY y GOOGLE_SHEETS_ID en .env.');
+  process.exit(1);
+}
 
 // Initialize Supabase Admin Client
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
