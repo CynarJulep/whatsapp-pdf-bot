@@ -134,7 +134,7 @@ y deshabilita suspensión/hibernación cuando la PC está enchufada:
 
 ```powershell
 Start-Process powershell -Verb RunAs -Wait -ArgumentList `
-  '-NoProfile -ExecutionPolicy Bypass -File "C:\Renzo\WHATSAPP\scripts\install-sac-worker.ps1"'
+  '-NoProfile -ExecutionPolicy Bypass -File "C:\path\to\whatsapp-pdf-bot\scripts\install-sac-worker.ps1"'
 ```
 
 La pantalla puede apagarse y cualquier usuario puede iniciar/cerrar sesión sin

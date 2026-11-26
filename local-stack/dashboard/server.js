@@ -14,6 +14,30 @@ const TUNNELS_FILE = path.join(STATE_DIR, 'tunnels.json');
 const ALERTS_FILE = path.join(STATE_DIR, 'alerts.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+function publicSite() {
+  return (process.env.PUBLIC_SITE_URL || '').replace(/\/$/, '');
+}
+
+function registryUrl() {
+  if (process.env.BACKEND_REGISTRY_URL) return process.env.BACKEND_REGISTRY_URL;
+  const base = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+  if (!base) return '';
+  const bucket = process.env.BACKEND_REGISTRY_BUCKET || 'runtime';
+  const objectName = process.env.BACKEND_REGISTRY_OBJECT || 'backend-endpoints.json';
+  return `${base}/storage/v1/object/public/${bucket}/${objectName}`;
+}
+
+function renderDashboardHtml(filePath) {
+  const site = publicSite();
+  const registry = registryUrl();
+  const html = fs.readFileSync(filePath, 'utf8')
+    .replaceAll('__PUBLIC_SITE_URL__', site || '#')
+    .replaceAll('__PUBLIC_SITE_LABEL__', site ? site.replace(/^https?:\/\//, '') : 'PUBLIC_SITE_URL')
+    .replaceAll('__PUBLIC_SITE_PING__', site ? `${site}/api/ping` : '#')
+    .replaceAll('__REGISTRY_URL__', registry || '#');
+  return html;
+}
+
 function fetchJson(url, timeoutMs = 4000) {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: timeoutMs }, (res) => {
@@ -128,6 +152,11 @@ const server = http.createServer(async (req, res) => {
   }
   const ext = path.extname(filePath);
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+  if (ext === '.html') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(renderDashboardHtml(filePath));
+    return;
+  }
   res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
   fs.createReadStream(filePath).pipe(res);
 });

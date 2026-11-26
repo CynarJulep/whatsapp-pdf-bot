@@ -18,6 +18,8 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
     ],
+    // Root .env (same file as Docker). Only VITE_* is exposed to the browser.
+    envDir: path.resolve(__dirname, '..'),
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

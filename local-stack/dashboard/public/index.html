@@ -425,8 +425,8 @@
         ${row('último maintain', esc(fmtTime(m?.ts)))}
         <p class="note" style="margin-top:0.75rem">
           Este panel lee <code>/status</code> de cada bot cada 5 s y el archivo de alertas del servicio <code>maintain</code>.
-          Sitio público: <a href="https://ac-pai-wp.netlify.app" target="_blank">ac-pai-wp.netlify.app</a>
-          · ping API: <a href="https://ac-pai-wp.netlify.app/api/ping" target="_blank">/api/ping</a>.
+          Sitio público: <a href="__PUBLIC_SITE_URL__" target="_blank">__PUBLIC_SITE_LABEL__</a>
+          · ping API: <a href="__PUBLIC_SITE_PING__" target="_blank">/api/ping</a>.
         </p>
       `;
     }
@@ -449,7 +449,7 @@
         } else if (String(a.title || '').toLowerCase().includes('tunnel')) {
           steps.push('docker compose --profile tunnels restart tunnels');
           steps.push('Esperá ~30 s y revisá que el registry Supabase tenga URLs nuevas');
-          steps.push('Probar https://ac-pai-wp.netlify.app/api/ping');
+          steps.push('Probar __PUBLIC_SITE_PING__');
         } else if (String(a.title || '').toLowerCase().includes('registry')) {
           steps.push('docker compose --profile tunnels logs tunnels --tail 50');
           steps.push('Verificar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en .env');
@@ -482,10 +482,10 @@
         ${row('Licencias público', t.licencias ? `<a href="${esc(t.licencias)}" target="_blank">${esc(t.licencias)}</a>` : '—')}
         ${row('alcanza /status', licReach === true ? '<span class="dot ok"></span>sí' : licReach === false ? '<span class="dot bad"></span>no' : '— (maintain)')}
         ${row('registry actualizado', esc(fmtTime(t.updatedAt)) + ' · hace ' + esc(ageLabel))}
-        ${row('registry público', '<a href="https://hltyozdvcqfmvqmyrlva.supabase.co/storage/v1/object/public/runtime/backend-endpoints.json" target="_blank">backend-endpoints.json</a>')}
+        ${row('registry público', '<a href="__REGISTRY_URL__" target="_blank">backend-endpoints.json</a>')}
         <div class="explain">
           <strong>Cómo encaja Netlify:</strong> el sitio fijo
-          <a href="https://ac-pai-wp.netlify.app" target="_blank">ac-pai-wp.netlify.app</a>
+          <a href="__PUBLIC_SITE_URL__" target="_blank">__PUBLIC_SITE_LABEL__</a>
           lee el JSON del registry (cache ~15 s) y proxya al tunnel PAI.
           Si el tunnel rota, no hace falta tocar Netlify a mano: <code>tunnels</code> republica solo.
           Si el sitio falla pero los bots locales están OK, el problema suele ser tunnel/registry — no WhatsApp.
